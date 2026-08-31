@@ -1,0 +1,7 @@
+.env
+venv/
+__pycache__/
+*.pyc
+session_cookies.json
+token_cache.json
+.browser_profile/

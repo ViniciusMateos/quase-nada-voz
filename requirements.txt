@@ -1,0 +1,8 @@
+sounddevice
+numpy
+requests
+pywin32
+python-dotenv
+playwright
+pystray
+Pillow

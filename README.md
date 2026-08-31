@@ -1,6 +1,6 @@
 # Quase Nada Voz
 
-Ditado por voz via hotkey: segure a tecla, fale, solte — o texto transcrito é colado automaticamente onde estiver o cursor.
+Ditado por voz via hotkey: aperte, fale, solte — o texto transcrito é colado automaticamente onde estiver o cursor.
 
 ## Setup (já feito nesta pasta)
 
@@ -13,7 +13,7 @@ Ditado por voz via hotkey: segure a tecla, fale, solte — o texto transcrito é
 Em vez de pegar o token manualmente no DevTools, agora o script loga sozinho:
 
 1. Você coloca seu email e senha do ChatGPT em `.env` (`OPENAI_EMAIL` / `OPENAI_PASSWORD`).
-2. Na primeira vez (ou sempre que a sessão expirar de vez), o `auth.py` abre uma janela do Chromium, preenche o login sozinho e extrai a sessão.
+2. Na primeira vez (ou sempre que a sessão expirar de vez), o `auth.py` abre uma janela do Chrome, preenche o login sozinho e extrai a sessão.
 3. Essa sessão fica salva em `session_cookies.json` e `token_cache.json` (na própria pasta do projeto, fora do git). Enquanto ela for válida, o script renova o token de acesso automaticamente via requisição HTTP simples — **sem abrir navegador**.
 4. Quando o token de acesso expira (geralmente ~1h), ele é renovado sozinho a partir do cookie salvo.
 5. Quando o próprio cookie de sessão expira (dura bem mais, semanas), o script detecta (a chamada volta vazia / a API responde 401), abre o navegador de novo e refaz o login sozinho com o email/senha do `.env`.
@@ -43,7 +43,12 @@ venv\Scripts\activate
 python quase_nada_voz.py
 ```
 
-Segure **F9** (ou o que estiver em `HOTKEY` no `.env`) para gravar, solte para transcrever e colar.
+Tem dois jeitos de usar o hotkey (**F9** por padrão, ou o que estiver em `HOTKEY` no `.env`):
+
+- **Segurar e soltar**: grava enquanto a tecla está pressionada, transcreve e cola ao soltar.
+- **Toque rápido**: aperte e solte rápido (menos de ~0,35s) para travar a gravação ligada — toque de novo pra parar e transcrever.
+
+Um ícone aparece na bandeja do sistema (perto do relógio, pode estar escondido nos "ícones ocultos" na primeira vez): cinza quando ocioso, vermelho enquanto grava. Clique com o botão direito nele para sair.
 
 ## Iniciar com o Windows
 

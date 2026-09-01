@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 import config
 import transcriber
 from hotkey import HotkeyListener, parse_hotkey, vk_to_name
+from logger import log
 from overlay import RecordingOverlay
 from recorder import Recorder
 from settings_dialog import SettingsDialog
@@ -64,7 +65,7 @@ class VoiceApp:
         self.overlay.bridge.level_changed.emit(level)
 
     def _start_recording(self):
-        print("[app] gravando...")
+        log("gravando...")
         self.recorder.start()
         self.overlay.show_recording()
         self.tray.setIcon(ICON_RECORDING)
@@ -72,7 +73,7 @@ class VoiceApp:
         _beep(800, 150)
 
     def _stop_recording(self):
-        print("[app] parou de gravar, transcrevendo...")
+        log("parou de gravar, transcrevendo...")
         wav_bytes = self.recorder.stop()
         self.overlay.hide_recording()
         self.tray.setIcon(ICON_IDLE)
@@ -81,12 +82,12 @@ class VoiceApp:
             threading.Thread(target=self._transcribe, args=(wav_bytes,), daemon=True).start()
 
     def _transcribe(self, wav_bytes):
-        try:
-            text = transcriber.transcribe(wav_bytes, self.cfg["OAI_DEVICE_ID"])
+        result = transcriber.transcribe_and_paste(wav_bytes, self.cfg["OAI_DEVICE_ID"])
+        if result == "ok":
             _beep(1500, 150)
-            transcriber.paste_text(text)
-        except Exception as e:
-            print(f"Erro: {e}")
+        elif result == "silence":
+            _beep(400, 250)
+        else:
             _beep(500, 100)
             _beep(500, 100)
 
@@ -134,7 +135,7 @@ def main():
         QMessageBox.critical(None, "Quase Nada Voz - erro ao iniciar", str(e))
         sys.exit(1)
 
-    print(f"[app] Pronto. Segure ou toque {voice_app.cfg['HOTKEY']} para ditar.")
+    log(f"Pronto. Segure ou toque {vk_to_name(voice_app.hotkey.vk_code)} para ditar.")
     sys.exit(app.exec())
 
 

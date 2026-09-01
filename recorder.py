@@ -4,7 +4,10 @@ import wave
 import numpy as np
 import sounddevice as sd
 
+from logger import log
+
 SAMPLE_RATE = 16000
+SILENCE_PEAK_THRESHOLD = 200
 
 
 def resolve_device_index(device_name):
@@ -65,10 +68,16 @@ class Recorder:
         self.recording = False
         self.level = 0.0
         if not self._frames:
+            log("Nenhum audio capturado")
             return None
 
         audio_data = np.concatenate(self._frames, axis=0)
         self._frames = []
+
+        peak = int(np.abs(audio_data).max()) if audio_data.size else 0
+        log(f"Audio: {len(audio_data) / SAMPLE_RATE:.1f}s, pico {peak}")
+        if peak < SILENCE_PEAK_THRESHOLD:
+            log("Microfone praticamente mudo - checar dispositivo padrao do Windows")
 
         wav_io = io.BytesIO()
         with wave.open(wav_io, "wb") as wf:

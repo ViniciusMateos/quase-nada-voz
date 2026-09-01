@@ -50,23 +50,28 @@ Tem dois jeitos de usar o hotkey (**F9** por padrão, configurável no painel �
 - **Segurar e soltar**: grava enquanto a tecla está pressionada, transcreve e cola ao soltar.
 - **Toque rápido**: aperte e solte rápido (menos de ~0,35s) para travar a gravação ligada — toque de novo pra parar e transcrever.
 
-Enquanto grava, aparece uma pilula flutuante no rodapé da tela com um waveform ao vivo reagindo à sua voz. Um ícone também fica na bandeja do sistema (perto do relógio, pode estar escondido nos "ícones ocultos" na primeira vez): cinza quando ocioso, vermelho enquanto grava.
+Uma bolinha flutuante fica **sempre visível** na tela (por padrão no canto inferior direito) — arraste pra qualquer lugar, inclusive entre monitores, que a posição fica salva. Ela muda de acordo com o que tá acontecendo:
+
+- **Parada**: mostra a logo (cachorro) discreta. Passar o mouse dá uma leve expandida; clicar (sem arrastar) abre o painel de configurações.
+- **Gravando**: vira uma pilula com um mini equalizador ao vivo (faixas de frequência de verdade, via FFT — não é só volume geral).
+- **Processando**: o anel ao redor do cachorro vira um spinner de carregamento até a transcrição terminar.
+
+Um ícone também fica na bandeja do sistema (perto do relógio, pode estar escondido nos "ícones ocultos" na primeira vez) — clique nele (ou clique direito → Configurações) pra abrir o painel.
 
 ## Painel de configurações
 
-Clique com o botão direito no ícone da bandeja → **Configurações**. Dá pra mudar tudo sem editar arquivo nenhum na mão, e aplica na hora (sem precisar reiniciar):
+Clique na bolinha flutuante (ou botão direito no ícone da bandeja → **Configurações**). Painel com abas — dá pra mudar tudo sem editar arquivo nenhum na mão, e aplica na hora (sem precisar reiniciar):
 
-- **Email/senha** do ChatGPT (com botão "Testar login agora" pra forçar uma renovação e confirmar que está tudo certo)
-- **Hotkey**: clique no campo e aperte a tecla que quiser — aceita qualquer tecla do teclado, não só uma lista fixa
-- **Microfone**: escolhe entre os dispositivos de entrada disponíveis, ou deixa no padrão do sistema
+- **Aba Configurações**: hotkey (clique no campo e aperte a tecla que quiser — aceita qualquer tecla, não só uma lista fixa) e microfone (lista os dispositivos de entrada disponíveis, ou deixa no padrão do sistema)
+- **Aba Conta**: email/senha do ChatGPT, botão "Testar login agora" pra forçar uma renovação e confirmar que está tudo certo, e um resumo de como o login automático funciona
 
 Por baixo dos panos ainda é tudo salvo no `.env` — o painel só evita precisar editar na mão.
 
-Os beeps dizem o que aconteceu:
+Os sons dizem o que aconteceu:
 
-- **800Hz ao apertar** — comecou a gravar.
-- **1500Hz agudo** — transcreveu e colou o texto.
-- **400Hz grave** — gravou, mas nao veio fala reconhecivel (microfone mudo ou baixo demais). Nao e problema de sessao, entao nao abre navegador.
+- **`start-stop-recording.mp3`** — toca ao começar e ao parar de gravar.
+- **`done-transcribe.mp3`** — transcreveu e colou o texto.
+- **Beep grave (400Hz)** — gravou, mas não veio fala reconhecível (microfone mudo ou baixo demais). Não é problema de sessão, então não abre navegador.
 - **Dois beeps de 500Hz** — erro. O motivo fica em `quase_nada_voz.log`, na pasta do projeto.
 
 O navegador so abre quando a API responde 401/403 de verdade — e mesmo assim ele tenta primeiro renovar a sessao pelo cookie salvo, sem abrir nada.
@@ -87,7 +92,7 @@ Editável direto ou pelo painel de configurações (recomendado):
 ## Observações
 
 - Usa o endpoint interno `chatgpt.com/backend-api/transcribe` (não oficial/documentado) — pode mudar ou parar de funcionar sem aviso.
-- Interface feita com PySide6 (Qt oficial pra Python, licença LGPL — de graça mesmo em uso comercial/fechado).
-- O ícone (`assets/icon.ico`) é a logo em `assets/logo.png`, colocada sobre um fundo turquesa (`#14B8A6`) com cantos arredondados.
+- Interface feita com PySide6 (Qt oficial pra Python, licença LGPL — de graça mesmo em uso comercial/fechado), tema escuro customizado (`theme.py`).
+- O ícone (`assets/icon.ico`) é a logo em `assets/logo.png`, colocada sobre um fundo turquesa (`#14B8A6`) com cantos arredondados. A bolinha flutuante usa `assets/dog.png` (só o cachorro, sem o círculo) pra ficar nítida em qualquer tamanho.
 - Cada gravação fica registrada em `quase_nada_voz.log` (duração, pico do áudio, erro) — útil porque o app roda sem console.
 - O microfone padrão do Windows é usado para gravação; troque o dispositivo padrão do sistema, ou escolha outro direto no painel de configurações.

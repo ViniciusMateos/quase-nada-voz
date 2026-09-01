@@ -20,6 +20,21 @@ import auth
 
 load_dotenv()
 
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "quase_nada_voz.log")
+
+def log(msg):
+    linha = f"[{time.strftime('%H:%M:%S')}] {msg}"
+    print(linha, flush=True)
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            print(linha, file=f)
+    except OSError:
+        pass
+
+def beep_erro():
+    winsound.Beep(500, 100)
+    winsound.Beep(500, 100)
+
 OAI_DEVICE_ID = os.getenv("OAI_DEVICE_ID", "4735a0c5-377b-45d6-b480-85bdaf63d5d6")
 HOTKEY_STR = os.getenv("HOTKEY", "F9").upper()
 
@@ -100,44 +115,74 @@ def paste_text(text):
 
 def transcribe_and_paste(wav_bytes):
     url = "https://chatgpt.com/backend-api/transcribe"
-    files = {
-        "file": ("whisper.wav", wav_bytes, "audio/wav")
-    }
+    force_relogin = False
 
-    for attempt in range(2):
+    for tentativa in range(3):
         try:
-            token = auth.get_access_token(force_relogin=(attempt == 1))
-            headers = {
-                "authorization": f"Bearer {token}",
-                "oai-device-id": OAI_DEVICE_ID,
-                "oai-language": "pt-BR",
-                "user-agent": auth.UA,
-            }
-
-            response = requests.post(url, headers=headers, files=files)
-            if response.status_code == 401 and attempt == 0:
-                print("Token expirado, renovando sessao...")
-                continue
-            response.raise_for_status()
-            text = response.json().get("text", "")
-
-            if text:
-                winsound.Beep(1500, 150)
-                paste_text(text)
-            else:
-                raise ValueError("Resposta vazia")
-            return
+            token = auth.get_access_token(force_relogin=force_relogin)
         except Exception as e:
-            if attempt == 1:
-                print(f"Erro: {e}")
-                winsound.Beep(500, 100)
-                winsound.Beep(500, 100)
+            log(f"Falha ao obter token: {e}")
+            beep_erro()
+            return
+
+        headers = {
+            "authorization": f"Bearer {token}",
+            "oai-device-id": OAI_DEVICE_ID,
+            "oai-language": "pt-BR",
+            "user-agent": auth.UA,
+        }
+        files = {"file": ("whisper.wav", wav_bytes, "audio/wav")}
+
+        try:
+            response = requests.post(url, headers=headers, files=files, timeout=60)
+        except requests.RequestException as e:
+            log(f"Falha de rede: {e}")
+            beep_erro()
+            return
+
+        if response.status_code in (401, 403):
+            # 1a vez renova pelo cookie salvo (sem navegador); so na 2a abre o Chrome
+            auth.invalidate_token_cache()
+            force_relogin = tentativa >= 1
+            log(f"HTTP {response.status_code} - renovando sessao (relogin={force_relogin})")
+            continue
+
+        if response.status_code != 200:
+            log(f"HTTP {response.status_code}: {response.text[:200]}")
+            beep_erro()
+            return
+
+        text = response.json().get("text", "").strip()
+        if not text:
+            # audio sem fala reconhecivel: nao e problema de sessao, nao reloga
+            log("Nada reconhecido no audio - nada colado")
+            winsound.Beep(400, 250)
+            return
+
+        log(f"Transcrito: {text[:80]}")
+        winsound.Beep(1500, 150)
+        try:
+            paste_text(text)
+        except Exception as e:
+            log(f"Texto transcrito mas falhou ao colar: {e}")
+            beep_erro()
+        return
+
+    log("Nao consegui autenticar depois de 3 tentativas")
+    beep_erro()
 
 def process_audio():
     global audio_frames
-    if not audio_frames: return
+    if not audio_frames:
+        log("Nenhum audio capturado")
+        return
     audio_data = np.concatenate(audio_frames, axis=0)
     audio_frames = []
+
+    pico = int(np.abs(audio_data).max()) if audio_data.size else 0
+    log(f"Audio: {len(audio_data) / 16000:.1f}s, pico {pico}")
+    if pico < 200:
+        log("Microfone praticamente mudo - checar dispositivo padrao do Windows")
 
     wav_io = io.BytesIO()
     with wave.open(wav_io, 'wb') as wf:

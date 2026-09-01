@@ -189,6 +189,14 @@ def _login_with_playwright():
     return token_json["accessToken"], token_json.get("expires")
 
 
+def invalidate_token_cache():
+    """Descarta o access token salvo pra forcar renovacao pelo cookie."""
+    try:
+        TOKEN_CACHE_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def get_access_token(force_relogin=False):
     """Retorna um access token valido pra usar no header Authorization.
     Renova sozinho via cookie salvo; se o cookie tambem expirou, refaz o

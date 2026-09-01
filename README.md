@@ -62,6 +62,15 @@ Clique com o botão direito no ícone da bandeja → **Configurações**. Dá pr
 
 Por baixo dos panos ainda é tudo salvo no `.env` — o painel só evita precisar editar na mão.
 
+Os beeps dizem o que aconteceu:
+
+- **800Hz ao apertar** — comecou a gravar.
+- **1500Hz agudo** — transcreveu e colou o texto.
+- **400Hz grave** — gravou, mas nao veio fala reconhecivel (microfone mudo ou baixo demais). Nao e problema de sessao, entao nao abre navegador.
+- **Dois beeps de 500Hz** — erro. O motivo fica em `quase_nada_voz.log`, na pasta do projeto.
+
+O navegador so abre quando a API responde 401/403 de verdade — e mesmo assim ele tenta primeiro renovar a sessao pelo cookie salvo, sem abrir nada.
+
 ## Iniciar com o Windows
 
 Já foi criado um atalho em `shell:startup` apontando para `start.bat` — o app sobe automaticamente no login. Para desativar, apague `QuaseNadaVoz.lnk` da pasta Startup (`Win+R` → `shell:startup`).
@@ -80,3 +89,5 @@ Editável direto ou pelo painel de configurações (recomendado):
 - Usa o endpoint interno `chatgpt.com/backend-api/transcribe` (não oficial/documentado) — pode mudar ou parar de funcionar sem aviso.
 - Interface feita com PySide6 (Qt oficial pra Python, licença LGPL — de graça mesmo em uso comercial/fechado).
 - O ícone (`assets/icon.ico`) é a logo em `assets/logo.png`, colocada sobre um fundo turquesa (`#14B8A6`) com cantos arredondados.
+- Cada gravação fica registrada em `quase_nada_voz.log` (duração, pico do áudio, erro) — útil porque o app roda sem console.
+- O microfone padrão do Windows é usado para gravação; troque o dispositivo padrão do sistema, ou escolha outro direto no painel de configurações.

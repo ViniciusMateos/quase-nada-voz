@@ -9,6 +9,38 @@ from logger import log
 SAMPLE_RATE = 16000
 SILENCE_PEAK_THRESHOLD = 200
 
+N_BANDS = 5
+BAND_MAX_FREQ = 4000  # hz -- cobre a faixa relevante de voz, ignora o resto
+BAND_NORMALIZE = 12.0  # divisor empirico pra levar a magnitude da FFT pra 0..1
+
+
+def _compute_bands(indata):
+    """FFT do bloco de audio, dividido em N_BANDS faixas de frequencia
+    (graves a agudos) com espacamento log. Retorna niveis 0..1 por faixa,
+    pra desenhar um equalizador ao vivo (sem depender de historico)."""
+    samples = indata[:, 0].astype(np.float32)
+    if samples.size < 8:
+        return [0.0] * N_BANDS
+
+    windowed = samples * np.hanning(len(samples))
+    spectrum = np.abs(np.fft.rfft(windowed))
+    freqs = np.fft.rfftfreq(len(samples), 1 / SAMPLE_RATE)
+
+    max_bin = int(np.searchsorted(freqs, BAND_MAX_FREQ))
+    spectrum = spectrum[:max_bin] if max_bin > 1 else spectrum
+    if spectrum.size == 0:
+        return [0.0] * N_BANDS
+
+    edges = np.unique(np.geomspace(1, spectrum.size, N_BANDS + 1).astype(int))
+    bands = []
+    for i in range(N_BANDS):
+        lo = edges[i] - 1 if i < len(edges) else spectrum.size - 1
+        hi = edges[i + 1] if i + 1 < len(edges) else spectrum.size
+        chunk = spectrum[max(0, lo):max(hi, lo + 1)]
+        magnitude = float(chunk.mean()) if chunk.size else 0.0
+        bands.append(min(1.0, magnitude / (BAND_NORMALIZE * len(samples))))
+    return bands
+
 
 def resolve_device_index(device_name):
     """Acha o indice de um dispositivo de entrada pelo nome salvo.
@@ -22,24 +54,33 @@ def resolve_device_index(device_name):
 
 
 def list_input_devices():
-    """Lista (nome, index) dos dispositivos de entrada disponiveis."""
-    return [
+    """Lista (nome, index) dos dispositivos de entrada disponiveis, um
+    por microfone fisico. O PortAudio expõe o mesmo microfone repetido
+    uma vez por API de audio (MME, DirectSound, WASAPI, WDM-KS) -- so
+    a WASAPI da uma entrada limpa por dispositivo (igual o Windows
+    mostra nas configuracoes de som), entao filtra so nela."""
+    hostapis = sd.query_hostapis()
+    wasapi_idx = next((i for i, api in enumerate(hostapis) if "WASAPI" in api["name"]), None)
+
+    devices = [
         (dev["name"], idx)
         for idx, dev in enumerate(sd.query_devices())
         if dev.get("max_input_channels", 0) > 0
+        and (wasapi_idx is None or dev["hostapi"] == wasapi_idx)
     ]
+    return devices
 
 
 class Recorder:
     """Captura audio do microfone. Enquanto `recording` estiver ligado,
-    acumula frames e atualiza `level` (0..1) a cada bloco, pra quem
-    quiser desenhar um waveform/vu-meter em tempo real."""
+    acumula frames e chama `on_bands` a cada bloco com os niveis (0..1)
+    de N_BANDS faixas de frequencia, pra desenhar um equalizador ao vivo
+    (mostra so o nivel atual, sem historico/scroll)."""
 
-    def __init__(self, on_level=None, device_name=None):
+    def __init__(self, on_bands=None, device_name=None):
         self.recording = False
-        self.level = 0.0
         self._frames = []
-        self._on_level = on_level
+        self._on_bands = on_bands
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=1,
@@ -52,21 +93,17 @@ class Recorder:
         if not self.recording:
             return
         self._frames.append(indata.copy())
-        rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
-        self.level = min(1.0, rms / 4000.0)
-        if self._on_level:
-            self._on_level(self.level)
+        if self._on_bands:
+            self._on_bands(_compute_bands(indata))
 
     def start(self):
         self._frames = []
-        self.level = 0.0
         self.recording = True
 
     def stop(self):
         """Para de gravar e retorna os bytes de um WAV mono 16khz/16bit,
         ou None se nao capturou nada."""
         self.recording = False
-        self.level = 0.0
         if not self._frames:
             log("Nenhum audio capturado")
             return None

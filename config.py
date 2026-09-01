@@ -11,6 +11,8 @@ DEFAULTS = {
     "OAI_DEVICE_ID": "4735a0c5-377b-45d6-b480-85bdaf63d5d6",
     "HOTKEY": "F9",
     "AUDIO_DEVICE": "",
+    "WIDGET_X": "",
+    "WIDGET_Y": "",
 }
 
 

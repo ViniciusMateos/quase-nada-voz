@@ -36,31 +36,47 @@ Detalhes técnicos pra reduzir a chance de bloqueio por automação:
 
 ## Rodar
 
-Dê duplo clique em `start.bat`, ou:
+Dê duplo clique no atalho **"Quase Nada Voz"** na área de trabalho (roda em segundo plano, sem janela de terminal), ou:
 
 ```
 venv\Scripts\activate
-python quase_nada_voz.py
+python app.py
 ```
 
-Tem dois jeitos de usar o hotkey (**F9** por padrão, ou o que estiver em `HOTKEY` no `.env`):
+`start.bat` faz a mesma coisa mas com o terminal visível (útil pra ver logs/erros).
+
+Tem dois jeitos de usar o hotkey (**F9** por padrão, configurável no painel — veja abaixo):
 
 - **Segurar e soltar**: grava enquanto a tecla está pressionada, transcreve e cola ao soltar.
 - **Toque rápido**: aperte e solte rápido (menos de ~0,35s) para travar a gravação ligada — toque de novo pra parar e transcrever.
 
-Um ícone aparece na bandeja do sistema (perto do relógio, pode estar escondido nos "ícones ocultos" na primeira vez): cinza quando ocioso, vermelho enquanto grava. Clique com o botão direito nele para sair.
+Enquanto grava, aparece uma pilula flutuante no rodapé da tela com um waveform ao vivo reagindo à sua voz. Um ícone também fica na bandeja do sistema (perto do relógio, pode estar escondido nos "ícones ocultos" na primeira vez): cinza quando ocioso, vermelho enquanto grava.
+
+## Painel de configurações
+
+Clique com o botão direito no ícone da bandeja → **Configurações**. Dá pra mudar tudo sem editar arquivo nenhum na mão, e aplica na hora (sem precisar reiniciar):
+
+- **Email/senha** do ChatGPT (com botão "Testar login agora" pra forçar uma renovação e confirmar que está tudo certo)
+- **Hotkey**: clique no campo e aperte a tecla que quiser — aceita qualquer tecla do teclado, não só uma lista fixa
+- **Microfone**: escolhe entre os dispositivos de entrada disponíveis, ou deixa no padrão do sistema
+
+Por baixo dos panos ainda é tudo salvo no `.env` — o painel só evita precisar editar na mão.
 
 ## Iniciar com o Windows
 
-Já foi criado um atalho em `shell:startup` apontando para `start.bat` — o script sobe automaticamente no login, com uma janela de terminal visível. Para desativar, apague `QuaseNadaVoz.lnk` da pasta Startup (`Win+R` → `shell:startup`).
+Já foi criado um atalho em `shell:startup` apontando para `start.bat` — o app sobe automaticamente no login. Para desativar, apague `QuaseNadaVoz.lnk` da pasta Startup (`Win+R` → `shell:startup`).
 
 ## Configurações (`.env`)
 
+Editável direto ou pelo painel de configurações (recomendado):
+
 - `OPENAI_EMAIL` / `OPENAI_PASSWORD` — obrigatórios, login da sua conta ChatGPT (login direto por senha, não Google/Microsoft).
 - `OAI_DEVICE_ID` — opcional, tem um valor padrão.
-- `HOTKEY` — opcional (padrão `F9`). Outras opções: `F10`, `F13`, `CAPSLOCK`, `RCONTROL`, `SCROLLLOCK`.
+- `HOTKEY` — código virtual da tecla (padrão `120` = F9). O painel de configurações escreve esse valor sozinho quando você captura uma tecla nova.
+- `AUDIO_DEVICE` — nome do microfone escolhido no painel; vazio = padrão do sistema.
 
 ## Observações
 
 - Usa o endpoint interno `chatgpt.com/backend-api/transcribe` (não oficial/documentado) — pode mudar ou parar de funcionar sem aviso.
-- O microfone padrão do Windows é usado para gravação; troque o dispositivo padrão do sistema se quiser usar outro.
+- Interface feita com PySide6 (Qt oficial pra Python, licença LGPL — de graça mesmo em uso comercial/fechado).
+- O ícone (`assets/icon.ico`) é a logo em `assets/logo.png`, colocada sobre um fundo turquesa (`#14B8A6`) com cantos arredondados.

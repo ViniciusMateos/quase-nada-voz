@@ -22,10 +22,25 @@ import auth
 import config
 import paths
 import theme
+import version
 from hotkey import parse_hotkey, vk_to_name
 from recorder import list_input_devices
 
 ICON_PATH = paths.ASSETS_DIR / "icon.ico"
+
+
+def _disable_dwm_transitions(hwnd):
+    # com a janela na barra de tarefas, o Windows aplica a propria
+    # animacao de abrir/fechar (o efeito que "puxa" da barra de
+    # tarefas) por cima da nossa -- as duas competindo faz parecer
+    # que "vem de baixo" e, pior, o primeiro clique so mostra o
+    # botao na barra sem a janela aparecer de verdade. Isso desliga
+    # a animacao nativa so pra essa janela, sobra so a nossa.
+    try:
+        value = ctypes.c_int(1)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 3, ctypes.byref(value), ctypes.sizeof(value))
+    except OSError:
+        pass
 
 
 def _lerp_color(c1, c2, t):
@@ -345,6 +360,90 @@ class _LoginTestThread(QThread):
             self.finished_error.emit(str(e))
 
 
+class UpdateDialog(QDialog):
+    """Aviso de atualizacao disponivel, com a mesma cara do painel de
+    configuracoes (em vez de um QMessageBox generico do sistema)."""
+
+    update_clicked = Signal()
+
+    def __init__(self, current_version, new_version, notes, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Quase Nada Voz - atualização")
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        _disable_dwm_transitions(int(self.winId()))
+        self.setFixedWidth(380)
+
+        self._fade_anim = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade_anim.setDuration(160)
+        self._fade_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._fade_anim.setStartValue(0.0)
+        self._fade_anim.setEndValue(1.0)
+
+        subtitle = QLabel(f"Versão {new_version} disponível (você está na {current_version})")
+        subtitle.setObjectName("updateSubtitle")
+        subtitle.setWordWrap(True)
+
+        notes_label = QLabel(notes.strip()[:500] or "Melhorias e correções.")
+        notes_label.setObjectName("updateNotesLabel")
+        notes_label.setWordWrap(True)
+
+        self.status_label = QLabel("")
+        self.status_label.setObjectName("statusLabel")
+
+        self.later_btn = AnimatedButton("Agora não")
+        self.later_btn.clicked.connect(self.reject)
+        self.update_btn = AnimatedButton("Atualizar agora", primary=True)
+        self.update_btn.clicked.connect(self._on_update_clicked)
+
+        buttons_row = QHBoxLayout()
+        buttons_row.addStretch()
+        buttons_row.addWidget(self.later_btn)
+        buttons_row.addWidget(self.update_btn)
+
+        content = QVBoxLayout()
+        content.setContentsMargins(20, 12, 20, 18)
+        content.setSpacing(10)
+        content.addWidget(subtitle)
+        content.addWidget(notes_label)
+        content.addWidget(self.status_label)
+        content.addLayout(buttons_row)
+
+        panel = QWidget()
+        panel.setObjectName("panel")
+        panel.setAttribute(Qt.WA_StyledBackground, True)
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(4)
+        panel_layout.addWidget(_TitleBar("Nova versão disponível"))
+        panel_layout.addLayout(content)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(panel)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._fade_anim.stop()
+        self._fade_anim.start()
+
+    def _on_update_clicked(self):
+        self.update_clicked.emit()
+
+    def set_downloading(self):
+        self.later_btn.setEnabled(False)
+        self.update_btn.setEnabled(False)
+        self.update_btn.setText("Baixando...")
+        self.status_label.setText("Baixando atualização...")
+
+    def set_error(self, message):
+        self.later_btn.setEnabled(True)
+        self.update_btn.setEnabled(True)
+        self.update_btn.setText("Tentar de novo")
+        self.status_label.setText(f"Falhou: {message}")
+
+
 class SettingsDialog(QDialog):
     """Painel pra configurar credenciais, hotkey e microfone. Aplica na
     hora (sem precisar reiniciar o app) via os callbacks passados."""
@@ -364,7 +463,7 @@ class SettingsDialog(QDialog):
         self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self._disable_dwm_transitions()
+        _disable_dwm_transitions(int(self.winId()))
         self.setMinimumWidth(420)
         self._on_hotkey_changed = on_hotkey_changed
         self._on_device_changed = on_device_changed
@@ -450,10 +549,15 @@ class SettingsDialog(QDialog):
         buttons_row.addWidget(cancel_btn)
         buttons_row.addWidget(save_btn)
 
+        version_label = QLabel(f"v{version.APP_VERSION}")
+        version_label.setObjectName("versionLabel")
+        version_label.setAlignment(Qt.AlignCenter)
+
         content = QVBoxLayout()
         content.setContentsMargins(20, 0, 20, 18)
         content.addWidget(tabs)
         content.addLayout(buttons_row)
+        content.addWidget(version_label)
 
         panel = QWidget()
         panel.setObjectName("panel")
@@ -481,22 +585,6 @@ class SettingsDialog(QDialog):
         anim.setEasingCurve(QEasingCurve.OutCubic)
         anim.start(QPropertyAnimation.DeleteWhenStopped)
         widget._tab_fade_anim_ref = anim
-
-    def _disable_dwm_transitions(self):
-        # com a janela na barra de tarefas, o Windows aplica a propria
-        # animacao de abrir/fechar (o efeito que "puxa" da barra de
-        # tarefas) por cima da nossa -- as duas competindo faz parecer
-        # que "vem de baixo" e, pior, o primeiro clique so mostra o
-        # botao na barra sem a janela aparecer de verdade. Isso desliga
-        # a animacao nativa so pra essa janela, sobra so a nossa.
-        try:
-            hwnd = int(self.winId())
-            value = ctypes.c_int(1)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                hwnd, 3, ctypes.byref(value), ctypes.sizeof(value)
-            )
-        except OSError:
-            pass
 
     def showEvent(self, event):
         super().showEvent(event)

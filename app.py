@@ -13,11 +13,12 @@ import sound
 import theme
 import transcriber
 import updater
+import version
 from hotkey import HotkeyListener, parse_hotkey, vk_to_name
 from logger import log
 from overlay import FloatingWidget
 from recorder import Recorder
-from settings_dialog import SettingsDialog
+from settings_dialog import SettingsDialog, UpdateDialog
 
 ICON_PATH = str(paths.ASSETS_DIR / "icon.ico")
 
@@ -84,6 +85,7 @@ class VoiceApp:
 
         self._update_check_thread = None
         self._update_download_thread = None
+        self._update_dialog = None
         if paths.FROZEN:
             # so faz sentido checar atualizacao rodando o .exe empacotado
             # (rodando do codigo-fonte nao ha nada pra "aplicar"); espera
@@ -189,20 +191,22 @@ class VoiceApp:
         self._update_check_thread.start()
 
     def _on_update_found(self, info):
-        text = f"Nova versão {info['version']} disponível."
-        notes = info["notes"].strip()
-        if notes:
-            text += f"\n\n{notes[:400]}"
-        text += "\n\nAtualizar agora? O app fecha e reabre sozinho."
-        reply = QMessageBox.question(
-            None, "Quase Nada Voz - atualização", text, QMessageBox.Yes | QMessageBox.No
-        )
-        if reply != QMessageBox.Yes:
-            return
+        dialog = UpdateDialog(version.APP_VERSION, info["version"], info["notes"])
+        dialog.adjustSize()
+        screen = QGuiApplication.primaryScreen()
+        target = dialog.geometry()
+        target.moveCenter(screen.availableGeometry().center())
+        dialog.move(target.topLeft())
+        dialog.update_clicked.connect(lambda: self._start_update_download(dialog, info))
+        self._update_dialog = dialog
+        dialog.show()
+
+    def _start_update_download(self, dialog, info):
+        dialog.set_downloading()
         self.tray.setToolTip("Quase Nada Voz - baixando atualização...")
         self._update_download_thread = updater.UpdateDownloadThread(info["download_url"])
         self._update_download_thread.done.connect(self._on_update_downloaded)
-        self._update_download_thread.failed.connect(self._on_update_failed)
+        self._update_download_thread.failed.connect(lambda msg: self._on_update_failed(dialog, msg))
         self._update_download_thread.start()
 
     def _on_update_downloaded(self, new_exe_path):
@@ -213,9 +217,9 @@ class VoiceApp:
             return
         QApplication.quit()
 
-    def _on_update_failed(self, message):
+    def _on_update_failed(self, dialog, message):
         self.tray.setToolTip(f"Quase Nada Voz - segure ou toque {vk_to_name(self.hotkey.vk_code)} para ditar")
-        QMessageBox.warning(None, "Quase Nada Voz", f"Falha ao baixar atualização: {message}")
+        dialog.set_error(message)
 
     def _quit(self):
         self.hotkey.uninstall()

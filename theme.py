@@ -159,4 +159,19 @@ QTabBar::tab:hover {{
     padding: 10px;
     font-size: 12px;
 }}
+#versionLabel {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    padding-top: 8px;
+}}
+#updateNotesLabel {{
+    color: {TEXT_MUTED};
+    font-size: 12px;
+    line-height: 1.4;
+}}
+#updateSubtitle {{
+    color: {TEXT};
+    font-size: 13px;
+    font-weight: 600;
+}}
 """

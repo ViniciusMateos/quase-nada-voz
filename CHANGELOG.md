@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] — 2026-09-02
+
+### Adicionado
+- feat: número da versão aparece no rodapé do painel de configurações
+- feat: aviso de atualização ganha visual próprio (mesma cara do painel), com estado de "baixando" e erro inline, em vez de uma caixa de mensagem genérica do Windows
+
 ## [1.0.0] — 2026-09-02
 
 Primeira versão distribuível do app: dá pra compartilhar um `.exe` único com qualquer pessoa (sem precisar instalar Python), e o próprio app se atualiza sozinho a partir daqui.

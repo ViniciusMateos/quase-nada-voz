@@ -1,9 +1,8 @@
-from pathlib import Path
-
 from dotenv import dotenv_values, load_dotenv, set_key
 
-BASE_DIR = Path(__file__).parent
-ENV_PATH = BASE_DIR / ".env"
+import paths
+
+ENV_PATH = paths.DATA_DIR / ".env"
 
 DEFAULTS = {
     "OPENAI_EMAIL": "",
@@ -11,6 +10,7 @@ DEFAULTS = {
     "OAI_DEVICE_ID": "4735a0c5-377b-45d6-b480-85bdaf63d5d6",
     "HOTKEY": "F9",
     "AUDIO_DEVICE": "",
+    "BROWSER_CHANNEL": "",
     "WIDGET_X": "",
     "WIDGET_Y": "",
 }

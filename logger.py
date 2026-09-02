@@ -1,7 +1,8 @@
 import time
-from pathlib import Path
 
-LOG_FILE = Path(__file__).parent / "quase_nada_voz.log"
+import paths
+
+LOG_FILE = paths.DATA_DIR / "quase_nada_voz.log"
 
 
 def log(msg):

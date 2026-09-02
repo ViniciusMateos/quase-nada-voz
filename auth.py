@@ -3,19 +3,19 @@ import os
 import random
 import time
 from datetime import datetime
-from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
-load_dotenv()
+import paths
 
-BASE_DIR = Path(__file__).parent
-COOKIE_FILE = BASE_DIR / "session_cookies.json"
-TOKEN_CACHE_FILE = BASE_DIR / "token_cache.json"
-PROFILE_DIR = BASE_DIR / ".browser_profile"
-DEBUG_SCREENSHOT = BASE_DIR / "login_debug.png"
+load_dotenv(paths.DATA_DIR / ".env")
+
+COOKIE_FILE = paths.DATA_DIR / "session_cookies.json"
+TOKEN_CACHE_FILE = paths.DATA_DIR / "token_cache.json"
+PROFILE_DIR = paths.DATA_DIR / ".browser_profile"
+DEBUG_SCREENSHOT = paths.DATA_DIR / "login_debug.png"
 
 LOGIN_URL = "https://chatgpt.com/auth/login"
 SESSION_URL = "https://chatgpt.com/api/auth/session"
@@ -116,10 +116,32 @@ def _login_with_playwright():
             viewport={"width": 1200, "height": 900},
             args=["--disable-blink-features=AutomationControlled"],
         )
-        try:
-            context = p.chromium.launch_persistent_context(channel="chrome", **launch_kwargs)
-        except Exception:
-            context = p.chromium.launch_persistent_context(**launch_kwargs, user_agent=UA)
+        context = None
+        last_error = None
+        # navegador escolhido nas configuracoes (chrome/msedge) tem
+        # prioridade; sem escolha (vazio = "automatico"), tenta o Chrome
+        # instalado e depois o Edge (que vem de fabrica em todo Windows)
+        # -- so cai pro Chromium empacotado do Playwright por ultimo,
+        # porque esse exige "playwright install chromium", que um amigo
+        # rodando so o .exe nunca vai ter feito.
+        chosen = os.getenv("BROWSER_CHANNEL") or ""
+        channels = [chosen] if chosen else ["chrome", "msedge"]
+        for channel in channels:
+            try:
+                context = p.chromium.launch_persistent_context(channel=channel, **launch_kwargs)
+                break
+            except Exception as e:
+                last_error = e
+        if context is None and not chosen:
+            try:
+                context = p.chromium.launch_persistent_context(**launch_kwargs, user_agent=UA)
+            except Exception:
+                pass
+        if context is None:
+            raise RuntimeError(
+                "Não foi possível abrir um navegador para o login. "
+                "Instale o Google Chrome ou o Microsoft Edge e tente novamente."
+            ) from last_error
 
         context.add_init_script(STEALTH_INIT_SCRIPT)
 

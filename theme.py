@@ -1,4 +1,4 @@
-from pathlib import Path
+import paths
 
 TURQUOISE = "#14B8A6"
 TURQUOISE_HOVER = "#17CDB8"
@@ -10,10 +10,10 @@ TEXT_MUTED = "#9a9aa2"
 
 # Qt QSS url() precisa de forward slashes e path absoluto entre aspas
 # pra funcionar direito, independente de qual for o cwd do processo.
-CHEVRON_DOWN = (Path(__file__).parent / "assets" / "chevron-down.png").as_posix()
-CHEVRON_UP = (Path(__file__).parent / "assets" / "chevron-up.png").as_posix()
+CHEVRON_DOWN = (paths.ASSETS_DIR / "chevron-down.png").as_posix()
+CHEVRON_UP = (paths.ASSETS_DIR / "chevron-up.png").as_posix()
 
-FONT_STACK = "'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+FONT_STACK = "'Segoe UI', sans-serif"
 
 STYLESHEET = f"""
 QWidget {{

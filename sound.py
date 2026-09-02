@@ -1,11 +1,12 @@
 import ctypes
 import threading
 import time
-from pathlib import Path
+
+import paths
 
 _mci = ctypes.windll.winmm
 
-SOUNDS_DIR = Path(__file__).parent / "assets" / "sounds"
+SOUNDS_DIR = paths.ASSETS_DIR / "sounds"
 START_STOP_RECORDING = str(SOUNDS_DIR / "start-stop-recording.mp3")
 DONE_TRANSCRIBE = str(SOUNDS_DIR / "done-transcribe.mp3")
 

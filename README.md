@@ -56,14 +56,16 @@ Uma bolinha flutuante fica **sempre visível** na tela (por padrão no canto inf
 - **Gravando**: vira uma pilula com um mini equalizador ao vivo (faixas de frequência de verdade, via FFT — não é só volume geral).
 - **Processando**: o anel ao redor do cachorro vira um spinner de carregamento até a transcrição terminar.
 
-Um ícone também fica na bandeja do sistema (perto do relógio, pode estar escondido nos "ícones ocultos" na primeira vez) — clique nele (ou clique direito → Configurações) pra abrir o painel.
+Botão direito na bolinha abre o mesmo menu de Configurações/Sair da bandeja.
+
+Um ícone também fica na bandeja do sistema (perto do relógio, pode estar escondido nos "ícones ocultos" na primeira vez) — clique nele (ou clique direito → Configurações) pra abrir o painel. O app não aparece na barra de tarefas, só na bandeja.
 
 ## Painel de configurações
 
 Clique na bolinha flutuante (ou botão direito no ícone da bandeja → **Configurações**). Painel com abas — dá pra mudar tudo sem editar arquivo nenhum na mão, e aplica na hora (sem precisar reiniciar):
 
 - **Aba Configurações**: hotkey (clique no campo e aperte a tecla que quiser — aceita qualquer tecla, não só uma lista fixa) e microfone (lista os dispositivos de entrada disponíveis, ou deixa no padrão do sistema)
-- **Aba Conta**: email/senha do ChatGPT, botão "Testar login agora" pra forçar uma renovação e confirmar que está tudo certo, e um resumo de como o login automático funciona
+- **Aba Conta**: email/senha do ChatGPT, qual navegador usar no login automático (Automático/Chrome/Edge), botão "Testar login agora" pra forçar uma renovação e confirmar que está tudo certo, e um resumo de como o login automático funciona
 
 Por baixo dos panos ainda é tudo salvo no `.env` — o painel só evita precisar editar na mão.
 
@@ -88,6 +90,28 @@ Editável direto ou pelo painel de configurações (recomendado):
 - `OAI_DEVICE_ID` — opcional, tem um valor padrão.
 - `HOTKEY` — código virtual da tecla (padrão `120` = F9). O painel de configurações escreve esse valor sozinho quando você captura uma tecla nova.
 - `AUDIO_DEVICE` — nome do microfone escolhido no painel; vazio = padrão do sistema.
+- `BROWSER_CHANNEL` — navegador usado no login automático: vazio (automático, tenta Chrome e depois Edge), `chrome` ou `msedge`.
+
+## Distribuir para outras pessoas (`.exe`)
+
+Pra alguém usar sem instalar Python, gere um executável único com [PyInstaller](https://pyinstaller.org/):
+
+```
+venv\Scripts\pyinstaller.exe --name "QuaseNadaVoz" --onefile --windowed --icon assets/icon.ico --add-data "assets;assets" app.py
+```
+
+Gera `dist/QuaseNadaVoz.exe` — é só mandar esse arquivo. Cada pessoa que abrir precisa configurar o próprio email/senha do ChatGPT no painel (ícone da bandeja → Configurações). Dados de cada instalação (`.env`, sessão, log) ficam em `%LOCALAPPDATA%\QuaseNadaVoz`, sem depender da pasta onde o `.exe` está.
+
+Requer Google Chrome ou Microsoft Edge instalado (esse último já vem de fábrica em qualquer Windows) — o login automático abre um dos dois.
+
+### Atualização automática
+
+Rodando como `.exe`, o app confere sozinho (alguns segundos depois de abrir) se existe uma versão mais nova publicada nas [Releases do GitHub](https://github.com/ViniciusMateos/quase-nada-voz/releases). Se tiver, pergunta antes de baixar — aceitando, ele baixa, substitui o `.exe` atual e reabre sozinho.
+
+Pra publicar uma atualização pra quem já tem o app instalado:
+1. Bump em `version.py` (`APP_VERSION`).
+2. Gere o novo `.exe` (comando acima).
+3. Publique uma Release no GitHub com tag `vX.Y.Z` (maior que a anterior) e o `.exe` como anexo — quem já tem o app aberto recebe o aviso de atualização sozinho.
 
 ## Observações
 

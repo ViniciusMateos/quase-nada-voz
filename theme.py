@@ -93,6 +93,24 @@ QComboBox QAbstractItemView {{
     outline: none;
     padding: 4px;
 }}
+QCheckBox {{
+    spacing: 8px;
+    padding: 2px 0;
+}}
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid {BORDER};
+    border-radius: 5px;
+    background-color: {BG_INPUT};
+}}
+QCheckBox::indicator:hover {{
+    border: 1px solid {TURQUOISE};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {TURQUOISE};
+    border: 1px solid {TURQUOISE};
+}}
 QPushButton {{
     background-color: {BG_INPUT};
     border: 1px solid {BORDER};

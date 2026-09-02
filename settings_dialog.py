@@ -4,6 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal, Qt, QRect, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QPixmap, QColor, QIcon
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 import auth
+import autostart
 import config
 import paths
 import theme
@@ -489,11 +491,16 @@ class SettingsDialog(QDialog):
             if found >= 0:
                 self.device_combo.setCurrentIndex(found)
 
+        self.autostart_check = QCheckBox("Iniciar com o Windows")
+        self.autostart_check.setCursor(Qt.PointingHandCursor)
+        self.autostart_check.setChecked(autostart.is_enabled())
+
         general_form = QFormLayout()
         general_form.setContentsMargins(4, 16, 4, 8)
         general_form.setSpacing(12)
         general_form.addRow("Hotkey:", self.hotkey_button)
         general_form.addRow("Microfone:", self.device_combo)
+        general_form.addRow(self.autostart_check)
         general_tab = QWidget()
         general_tab.setLayout(general_form)
 
@@ -651,5 +658,7 @@ class SettingsDialog(QDialog):
             self._on_hotkey_changed(new_hotkey_vk)
         if new_device != self._values["AUDIO_DEVICE"] and self._on_device_changed:
             self._on_device_changed(new_device)
+
+        autostart.set_enabled(self.autostart_check.isChecked())
 
         self.accept()

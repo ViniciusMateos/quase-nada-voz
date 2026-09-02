@@ -9,6 +9,8 @@ Ditado por voz: aperte uma tecla, fale, solte — o texto é transcrito e colado
 3. Clique na bolinha que aparece na tela (ou no ícone perto do relógio — pode estar escondido nos "ícones ocultos" na primeira vez) e coloque seu email/senha do ChatGPT nas Configurações.
 4. Pronto — segure **F9** pra ditar (dá pra trocar a tecla no painel).
 
+**Se o Windows mostrar uma tela azul "O Windows protegeu o computador":** é normal pra qualquer `.exe` pequeno sem certificado pago de assinatura de código (não é vírus) — clique em **"Mais informações"** e depois em **"Executar assim mesmo"**.
+
 **Como funciona:** segure a tecla, fale, solte — transcreve e cola sozinho onde o cursor estiver. Toque rápido (sem segurar) trava a gravação ligada até você tocar de novo.
 
 No painel de Configurações (clique na bolinha ou no ícone da bandeja) dá pra trocar a tecla, o microfone, o navegador usado no login, e ligar o app junto com o Windows — tudo sem editar arquivo nenhum.

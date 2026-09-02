@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2] — 2026-09-02
+
+### Adicionado
+- feat: opção "Iniciar com o Windows" no painel de configurações (liga/desliga direto pelo registro, sem precisar mexer em atalho na pasta Startup)
+
+### Documentação
+- docs: README simplificado pra quem só usa o app (baixa e usa); setup de código-fonte, geração do .exe e publicação de updates viraram DEVELOPMENT.md
+
 ## [1.0.1] — 2026-09-02
 
 ### Adicionado

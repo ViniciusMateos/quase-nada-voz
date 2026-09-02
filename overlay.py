@@ -1,9 +1,10 @@
-from pathlib import Path
+import ctypes
 
 from PySide6.QtCore import Qt, QObject, Signal, QRectF, QRect, QPoint, QPointF, QTimer, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QPainter, QColor, QPainterPath, QGuiApplication, QPixmap, QPen
 from PySide6.QtWidgets import QWidget
 
+import paths
 from recorder import N_BANDS
 
 IDLE_SIZE = 36
@@ -21,7 +22,7 @@ ACTIVE_RADIUS = 14
 DOG_RING_SIZE = 28
 
 EDGE_MARGIN = 32
-DOG_PATH = Path(__file__).parent / "assets" / "dog.png"
+DOG_PATH = paths.ASSETS_DIR / "dog.png"
 HOVER_DEBOUNCE_MS = 40
 
 BG_COLOR = QColor(18, 18, 22, 210)
@@ -45,6 +46,16 @@ RING_ANIM_DURATION_MS = 220
 SHADOW_PAD = 12
 SHADOW_OPACITY = 0.30
 SHADOW_STEPS = 12
+
+# o Windows as vezes derruba silenciosamente o "sempre no topo" de uma
+# janela (interagir com outras janelas, DWM, sei la) -- reafirmar de
+# tempos em tempos e a forma robusta de garantir que nunca fica preso
+# atras de nada por muito tempo.
+TOPMOST_REASSERT_MS = 3000
+HWND_TOPMOST = -1
+SWP_NOMOVE = 0x0002
+SWP_NOSIZE = 0x0001
+SWP_NOACTIVATE = 0x0010
 
 
 class LevelBridge(QObject):
@@ -78,7 +89,7 @@ class FloatingWidget(QWidget):
     com um mini equalizador (niveis por faixa de frequencia, sem
     historico/scroll). Todas as trocas de tamanho sao animadas."""
 
-    def __init__(self, initial_pos=None, on_position_changed=None, on_click=None):
+    def __init__(self, initial_pos=None, on_position_changed=None, on_click=None, on_context_menu=None):
         super().__init__()
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -92,6 +103,7 @@ class FloatingWidget(QWidget):
 
         self._on_position_changed = on_position_changed
         self._on_click = on_click
+        self._on_context_menu = on_context_menu
         self._recording = False
         self._processing = False
         self._hovered = False
@@ -135,10 +147,25 @@ class FloatingWidget(QWidget):
         self._hover_timer.setSingleShot(True)
         self._hover_timer.timeout.connect(self._apply_hover_state)
 
+        self._topmost_timer = QTimer(self)
+        self._topmost_timer.timeout.connect(self._reassert_topmost)
+        self._topmost_timer.start(TOPMOST_REASSERT_MS)
+
         self._set_content_size(IDLE_SIZE, IDLE_SIZE)
         self.move(*(initial_pos or self._default_pos()))
         self._clamp_to_screen()
         self.show()
+        self._reassert_topmost()
+
+    def _reassert_topmost(self):
+        try:
+            hwnd = int(self.winId())
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+            )
+        except OSError:
+            pass
 
     def _set_content_size(self, w, h):
         self.resize(w + SHADOW_PAD * 2, h + SHADOW_PAD * 2)
@@ -312,6 +339,10 @@ class FloatingWidget(QWidget):
             elif not self._recording and self._on_click:
                 self._on_click()
             event.accept()
+
+    def contextMenuEvent(self, event):
+        if self._on_context_menu:
+            self._on_context_menu(event.globalPos())
 
     def paintEvent(self, event):
         painter = QPainter(self)

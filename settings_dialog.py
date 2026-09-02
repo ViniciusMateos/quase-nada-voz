@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFormLayout,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -19,11 +20,12 @@ from PySide6.QtWidgets import (
 
 import auth
 import config
+import paths
 import theme
 from hotkey import parse_hotkey, vk_to_name
 from recorder import list_input_devices
 
-ICON_PATH = Path(__file__).parent / "assets" / "icon.ico"
+ICON_PATH = paths.ASSETS_DIR / "icon.ico"
 
 
 def _lerp_color(c1, c2, t):
@@ -42,6 +44,7 @@ class AnimatedButton(QPushButton):
     def __init__(self, text="", parent=None, primary=False):
         super().__init__(text, parent)
         self.setCursor(Qt.PointingHandCursor)
+        self._primary = primary
         if primary:
             self._bg = QColor(theme.TURQUOISE)
             self._bg_hover = QColor(theme.TURQUOISE_HOVER)
@@ -74,10 +77,20 @@ class AnimatedButton(QPushButton):
     def _apply_style(self):
         bg = _lerp_color(self._bg, self._bg_hover, self._progress)
         border = _lerp_color(self._border, self._border_hover, self._progress)
-        pressed_bg = self._border_hover.darker(115)
         base = (
             f"background-color: {bg.name()}; border: 1px solid {border.name()}; "
             f"border-radius: 10px; padding: 9px 18px; color: {self._text_color.name()};"
+        )
+        # pressionado precisa ser bem obvio (nao so um tom levemente
+        # diferente) -- preenche solido de turquesa com texto escuro,
+        # que contrasta forte com qualquer um dos dois estados de cima.
+        if self._primary:
+            pressed_bg = QColor(theme.TURQUOISE).darker(125)
+        else:
+            pressed_bg = QColor(theme.TURQUOISE)
+        pressed = (
+            f"background-color: {pressed_bg.name()}; border: 1px solid {pressed_bg.name()}; "
+            f"border-radius: 10px; padding: 9px 18px; color: #0a0a0a; font-weight: 600;"
         )
         # a folha global tem regras QPushButton:hover/:pressed que, sem
         # isso, brigam com a cor animada (o hover fica "duro"/duplicado
@@ -86,8 +99,7 @@ class AnimatedButton(QPushButton):
         self.setStyleSheet(
             f"QPushButton {{ {base} }}"
             f"QPushButton:hover {{ {base} }}"
-            f"QPushButton:pressed {{ background-color: {pressed_bg.name()}; border: 1px solid {border.name()}; "
-            f"border-radius: 10px; padding: 9px 18px; color: {self._text_color.name()}; }}"
+            f"QPushButton:pressed {{ {pressed} }}"
         )
 
     def _animate(self, target):
@@ -104,6 +116,123 @@ class AnimatedButton(QPushButton):
         self._animate(0.0)
         super().leaveEvent(event)
 
+
+class AnimatedLineEdit(QLineEdit):
+    """QLineEdit cuja borda anima suave pra turquesa ao ganhar foco (o
+    QSS :focus do Qt troca a cor na hora, sem transicao nenhuma)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._border = QColor(theme.BORDER)
+        self._border_hover = QColor("#48484f")
+        self._border_focus = QColor(theme.TURQUOISE)
+        self._progress = 0.0
+        self._anim = QPropertyAnimation(self, b"borderProgress", self)
+        self._anim.setDuration(150)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._apply_style()
+
+    def _get_progress(self):
+        return self._progress
+
+    def _set_progress(self, value):
+        self._progress = value
+        self._apply_style()
+
+    borderProgress = Property(float, _get_progress, _set_progress)
+
+    def _apply_style(self):
+        target = self._border_focus if self.hasFocus() else self._border_hover
+        border = _lerp_color(self._border, target, self._progress)
+        self.setStyleSheet(
+            f"background-color: {theme.BG_INPUT}; border: 1px solid {border.name()}; "
+            f"border-radius: 10px; padding: 9px 12px; color: {theme.TEXT}; "
+            f"selection-background-color: {theme.TURQUOISE}; selection-color: #0a0a0a;"
+        )
+
+    def _animate(self, target):
+        self._anim.stop()
+        self._anim.setStartValue(self._progress)
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def focusInEvent(self, event):
+        self._animate(1.0)
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        self._animate(0.0)
+        super().focusOutEvent(event)
+
+    def enterEvent(self, event):
+        if not self.hasFocus():
+            self._animate(1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if not self.hasFocus():
+            self._animate(0.0)
+        super().leaveEvent(event)
+
+
+class AnimatedComboBox(QComboBox):
+    """QComboBox com a mesma ideia de borda animada (hover e foco/aberto)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._border = QColor(theme.BORDER)
+        self._border_active = QColor(theme.TURQUOISE)
+        self._progress = 0.0
+        self._anim = QPropertyAnimation(self, b"borderProgress", self)
+        self._anim.setDuration(150)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._apply_style()
+
+    def _get_progress(self):
+        return self._progress
+
+    def _set_progress(self, value):
+        self._progress = value
+        self._apply_style()
+
+    borderProgress = Property(float, _get_progress, _set_progress)
+
+    def _apply_style(self):
+        border = _lerp_color(self._border, self._border_active, self._progress)
+        self.setStyleSheet(
+            f"QComboBox {{ background-color: {theme.BG_INPUT}; border: 1px solid {border.name()}; "
+            f"border-radius: 10px; padding: 9px 12px; color: {theme.TEXT}; }}"
+            f"QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: top right; "
+            f"width: 26px; border-left: 1px solid {border.name()}; }}"
+            f"QComboBox::down-arrow {{ image: url(\"{theme.CHEVRON_DOWN}\"); width: 10px; height: 10px; margin-right: 8px; }}"
+            f"QComboBox::down-arrow:on {{ image: url(\"{theme.CHEVRON_UP}\"); }}"
+        )
+
+    def _animate(self, target):
+        self._anim.stop()
+        self._anim.setStartValue(self._progress)
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def showPopup(self):
+        self._animate(1.0)
+        super().showPopup()
+
+    def hidePopup(self):
+        super().hidePopup()
+        if not self.underMouse():
+            self._animate(0.0)
+
+    def enterEvent(self, event):
+        self._animate(1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if not self.view().isVisible():
+            self._animate(0.0)
+        super().leaveEvent(event)
+
+
 GUIDE_TEXT = (
     "Como funciona: o app loga sozinho no ChatGPT usando esse email/senha "
     "(abre o Chrome só na primeira vez, ou quando a sessão expira de vez). "
@@ -113,13 +242,13 @@ GUIDE_TEXT = (
 )
 
 
-class KeyCaptureButton(QPushButton):
+class KeyCaptureButton(AnimatedButton):
     """Botao que captura QUALQUER tecla do teclado: clica, aperta a tecla
     desejada, pronto. Usa o codigo virtual nativo do Windows (o mesmo que
     o hook global usa), entao qualquer tecla que o Windows reconhece serve."""
 
     def __init__(self, vk_code, parent=None):
-        super().__init__(parent)
+        super().__init__("", parent)
         self.vk_code = vk_code
         self._listening = False
         self.setFocusPolicy(Qt.StrongFocus)
@@ -168,10 +297,15 @@ class _TitleBar(QWidget):
         layout.setContentsMargins(16, 14, 10, 0)
         layout.setSpacing(8)
 
+        # QPixmap(caminho).scaled(...) pega um frame arbitrario (as vezes
+        # baixa resolucao) de dentro do .ico multi-tamanho e amplia --
+        # sai borrado. QIcon.pixmap() escolhe o frame mais proximo do
+        # tamanho pedido de verdade, entao sai nitido.
+        icon_pixmap = QIcon(str(ICON_PATH)).pixmap(56, 56)
+        icon_pixmap.setDevicePixelRatio(2.0)
         icon_label = QLabel()
-        icon_label.setPixmap(QPixmap(str(ICON_PATH)).scaled(
-            28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        ))
+        icon_label.setFixedSize(28, 28)
+        icon_label.setPixmap(icon_pixmap)
         text_label = QLabel(title)
         text_label.setObjectName("titleLabel")
         close_btn = QPushButton("✕")
@@ -219,16 +353,16 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self._anchor_rect = anchor_rect
         self._geo_anim = None
-        # windowTitle e windowIcon ficam so pro Windows (barra de
-        # tarefas, alt-tab, preview ao passar o mouse) -- a barra de
-        # titulo visivel e a customizada (_TitleBar), sem moldura nativa.
-        # Fica DE PROPOSITO na barra de tarefas (sem Qt.Tool) pra manter
-        # a pre-visualizacao ao passar o mouse -- o icone errado era
-        # porque o icone nao tinha sido setado direto NESSA janela
-        # (so no app inteiro), o resto (Qt.Tool) nao era o problema.
+        # windowTitle e windowIcon ficam so pro Windows (alt-tab, preview
+        # ao passar o mouse na bandeja) -- a barra de titulo visivel e a
+        # customizada (_TitleBar), sem moldura nativa.
+        # Qt.Tool tira a janela da barra de tarefas -- o app so aparece
+        # ali pela bandeja (system tray), nunca como um item separado na
+        # taskbar (isso confundia: aparecia generico como "Python", com
+        # jump list padrao do Windows sem nada a ver com o app).
         self.setWindowTitle("Quase Nada Voz")
         self.setWindowIcon(QIcon(str(ICON_PATH)))
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._disable_dwm_transitions()
         self.setMinimumWidth(420)
@@ -246,7 +380,7 @@ class SettingsDialog(QDialog):
 
         self.hotkey_button = KeyCaptureButton(parse_hotkey(self._values["HOTKEY"]))
 
-        self.device_combo = QComboBox()
+        self.device_combo = AnimatedComboBox()
         self.device_combo.addItem("Microfone padrão do sistema", "")
         for name, _idx in list_input_devices():
             self.device_combo.addItem(name, name)
@@ -264,9 +398,18 @@ class SettingsDialog(QDialog):
         general_tab = QWidget()
         general_tab.setLayout(general_form)
 
-        self.email_edit = QLineEdit(self._values["OPENAI_EMAIL"])
-        self.password_edit = QLineEdit(self._values["OPENAI_PASSWORD"])
+        self.email_edit = AnimatedLineEdit(self._values["OPENAI_EMAIL"])
+        self.password_edit = AnimatedLineEdit(self._values["OPENAI_PASSWORD"])
         self.password_edit.setEchoMode(QLineEdit.Password)
+
+        self.browser_combo = AnimatedComboBox()
+        self.browser_combo.addItem("Automático (Chrome ou Edge)", "")
+        self.browser_combo.addItem("Google Chrome", "chrome")
+        self.browser_combo.addItem("Microsoft Edge", "msedge")
+        saved_browser = self._values["BROWSER_CHANNEL"]
+        found_browser = self.browser_combo.findData(saved_browser)
+        if found_browser >= 0:
+            self.browser_combo.setCurrentIndex(found_browser)
 
         self.status_label = QLabel("")
         self.status_label.setObjectName("statusLabel")
@@ -282,6 +425,7 @@ class SettingsDialog(QDialog):
         account_form.setSpacing(12)
         account_form.addRow("Email do ChatGPT:", self.email_edit)
         account_form.addRow("Senha:", self.password_edit)
+        account_form.addRow("Navegador:", self.browser_combo)
         account_form.addRow(self.test_login_btn)
         account_form.addRow(self.status_label)
         account_tab = QWidget()
@@ -293,6 +437,8 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(general_tab, "Configurações")
         tabs.addTab(account_tab, "Conta")
+        tabs.currentChanged.connect(self._animate_tab_change)
+        self.tabs = tabs
 
         cancel_btn = AnimatedButton("Cancelar")
         cancel_btn.clicked.connect(self.reject)
@@ -321,6 +467,20 @@ class SettingsDialog(QDialog):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(panel)
+
+    def _animate_tab_change(self, index):
+        widget = self.tabs.widget(index)
+        if widget is None:
+            return
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity", widget)
+        anim.setDuration(200)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.start(QPropertyAnimation.DeleteWhenStopped)
+        widget._tab_fade_anim_ref = anim
 
     def _disable_dwm_transitions(self):
         # com a janela na barra de tarefas, o Windows aplica a propria
@@ -392,6 +552,7 @@ class SettingsDialog(QDialog):
             "OPENAI_PASSWORD": self.password_edit.text(),
             "HOTKEY": str(new_hotkey_vk),
             "AUDIO_DEVICE": new_device,
+            "BROWSER_CHANNEL": self.browser_combo.currentData(),
         })
 
         if new_email != old_email:

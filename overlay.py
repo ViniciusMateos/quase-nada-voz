@@ -1,4 +1,5 @@
 import ctypes
+import ctypes.wintypes as wintypes
 
 from PySide6.QtCore import Qt, QObject, Signal, QRectF, QRect, QPoint, QPointF, QTimer, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QPainter, QColor, QPainterPath, QGuiApplication, QPixmap, QPen
@@ -50,12 +51,32 @@ SHADOW_STEPS = 12
 # o Windows as vezes derruba silenciosamente o "sempre no topo" de uma
 # janela (interagir com outras janelas, DWM, sei la) -- reafirmar de
 # tempos em tempos e a forma robusta de garantir que nunca fica preso
-# atras de nada por muito tempo.
+# atras de nada por muito tempo. O timer sozinho ja ajuda, mas depois
+# de muitas horas rodando (principalmente atravessando desconexao/
+# reconexao de RDP) ele pode simplesmente parar de disparar sem avisar
+# -- por isso tambem reafirma na hora, via SetWinEventHook, toda vez
+# que QUALQUER janela vira a janela em primeiro plano (e o gatilho mais
+# comum de alguma coisa passar na frente da bolha).
 TOPMOST_REASSERT_MS = 3000
 HWND_TOPMOST = -1
 SWP_NOMOVE = 0x0002
 SWP_NOSIZE = 0x0001
 SWP_NOACTIVATE = 0x0010
+
+EVENT_SYSTEM_FOREGROUND = 0x0003
+WINEVENT_OUTOFCONTEXT = 0x0000
+WINEVENT_SKIPOWNPROCESS = 0x0002
+
+_WinEventProcType = ctypes.WINFUNCTYPE(
+    None,
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    wintypes.HWND,
+    wintypes.LONG,
+    wintypes.LONG,
+    wintypes.DWORD,
+    wintypes.DWORD,
+)
 
 
 class LevelBridge(QObject):
@@ -156,6 +177,7 @@ class FloatingWidget(QWidget):
         self._clamp_to_screen()
         self.show()
         self._reassert_topmost()
+        self._install_foreground_hook()
 
     def _reassert_topmost(self):
         try:
@@ -166,6 +188,17 @@ class FloatingWidget(QWidget):
             )
         except OSError:
             pass
+
+    def _install_foreground_hook(self):
+        # a referencia ao callback precisa ficar viva (guardada na
+        # instancia) -- se o objeto ctypes for coletado pelo GC, o
+        # Windows chama um ponteiro invalido e derruba o processo.
+        self._foreground_hook_cb = _WinEventProcType(lambda *args: self._reassert_topmost())
+        self._foreground_hook = ctypes.windll.user32.SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+            0, self._foreground_hook_cb, 0, 0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        )
 
     def _set_content_size(self, w, h):
         self.resize(w + SHADOW_PAD * 2, h + SHADOW_PAD * 2)

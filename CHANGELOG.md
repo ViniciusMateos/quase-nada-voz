@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.3] — 2026-09-03
+
+### Corrigido
+- fix: bolha flutuante reafirma o "sempre no topo" na hora (via evento de mudança de janela em primeiro plano), não só a cada 3s — o timer sozinho podia parar de disparar depois de muitas horas rodando
+
 ## [1.0.2] — 2026-09-02
 
 ### Adicionado

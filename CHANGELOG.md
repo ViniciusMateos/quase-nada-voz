@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0] — 2026-09-04
+
+### Adicionado
+- feat: aba "Histórico" no painel com as últimas 5 transcrições — clique pra ver o texto completo, botão "Copiar" pra jogar no clipboard sem precisar expandir. Salva antes de colar, então serve pra recuperar o texto quando a colagem automática cai na janela errada (acesso remoto) ou falha
+
 ## [1.0.3] — 2026-09-03
 
 ### Corrigido

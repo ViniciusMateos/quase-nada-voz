@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.1] — 2026-09-04
+
+### Adicionado
+- feat: histórico atualiza sozinho com o painel aberto (antes só aparecia transcrição nova fechando e abrindo de novo) e ganhou botão "Atualizar"
+
 ## [1.1.0] — 2026-09-04
 
 ### Adicionado

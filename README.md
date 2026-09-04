@@ -15,6 +15,8 @@ Ditado por voz: aperte uma tecla, fale, solte — o texto é transcrito e colado
 
 No painel de Configurações (clique na bolinha ou no ícone da bandeja) dá pra trocar a tecla, o microfone, o navegador usado no login, e ligar o app junto com o Windows — tudo sem editar arquivo nenhum.
 
+**Aba Histórico:** guarda as últimas 5 transcrições. Serve pra quando a colagem automática não cai onde devia (acesso remoto, janela que perdeu o foco) — clique numa transcrição pra ver o texto completo, ou use o botão "Copiar" e cole você mesmo. Só as 5 últimas ficam salvas; as mais antigas somem sozinhas.
+
 O app se atualiza sozinho: quando sair versão nova, ele avisa e atualiza com um clique.
 
 **Sobre a senha:** fica salva localmente sem criptografia (é o jeito mais simples de automatizar o login) — qualquer processo com acesso ao seu usuário Windows consegue ler. E como isso usa os endpoints internos do site da OpenAI (não é API oficial), pode violar os termos de uso deles e pode quebrar se a OpenAI mudar o login.

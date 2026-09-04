@@ -58,6 +58,10 @@ Pra quem já tem o app instalado receber o aviso de atualização sozinho:
 
 O app confere sozinho (alguns segundos depois de abrir, só rodando como `.exe`) se existe uma versão mais nova nas Releases do GitHub. Se tiver, mostra um aviso; aceitando, baixa, substitui o `.exe` atual e reabre sozinho.
 
+## Histórico de transcrições
+
+`history.py` guarda as últimas `MAX_ITEMS` (5) transcrições em `history.json` (no mesmo diretório de dados do `.env`/log). A gravação acontece em `transcriber.py` **antes** da colagem, de propósito: se a colagem cair na janela errada ou falhar, o texto ainda dá pra recuperar pela aba Histórico do painel. Cada entrada nova empurra a mais antiga pra fora, então o arquivo não cresce. Erro de leitura/escrita nunca propaga — histórico quebrado vira lista vazia, pra não atrapalhar a transcrição em si.
+
 ## "Iniciar com o Windows"
 
 O checkbox no painel escreve/remove um valor em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (`autostart.py`) — não precisa de admin, não usa atalho na pasta Startup.

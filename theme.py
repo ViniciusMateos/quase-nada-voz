@@ -206,7 +206,7 @@ QTabBar::tab:hover {{
     color: {TEXT};
     font-size: 12px;
 }}
-#historyCopyButton {{
+#historyCopyButton, #historyRefreshButton {{
     background-color: transparent;
     border: 1px solid {BORDER};
     border-radius: 8px;
@@ -214,11 +214,11 @@ QTabBar::tab:hover {{
     font-size: 11px;
     padding: 4px 8px;
 }}
-#historyCopyButton:hover {{
+#historyCopyButton:hover, #historyRefreshButton:hover {{
     border: 1px solid {TURQUOISE};
     color: {TEXT};
 }}
-#historyCopyButton:pressed {{
+#historyCopyButton:pressed, #historyRefreshButton:pressed {{
     background-color: {TURQUOISE};
     border: 1px solid {TURQUOISE};
     color: #0a0a0a;

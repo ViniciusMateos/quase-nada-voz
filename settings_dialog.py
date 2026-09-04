@@ -654,24 +654,12 @@ class SettingsDialog(QDialog):
         """Ultimas transcricoes salvas. Serve principalmente pra quando a
         colagem automatica nao cai onde devia (acesso remoto, janela que
         perdeu o foco) -- o texto continua aqui pra copiar na mao."""
-        inner = QWidget()
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 0, 0, 0)
-        inner_layout.setSpacing(6)
+        self._history_entries = None
 
-        entries = history.load()
-        if entries:
-            for entry in entries:
-                inner_layout.addWidget(_HistoryItem(entry))
-        else:
-            empty = QLabel(
-                f"Nada transcrito ainda. As últimas {history.MAX_ITEMS} transcrições "
-                "aparecem aqui pra você copiar caso a colagem automática não pegue."
-            )
-            empty.setObjectName("guideLabel")
-            empty.setWordWrap(True)
-            inner_layout.addWidget(empty)
-        inner_layout.addStretch()
+        inner = QWidget()
+        self._history_layout = QVBoxLayout(inner)
+        self._history_layout.setContentsMargins(0, 0, 0, 0)
+        self._history_layout.setSpacing(6)
 
         scroll = QScrollArea()
         scroll.setWidget(inner)
@@ -682,16 +670,66 @@ class SettingsDialog(QDialog):
         # dentro em vez de esticar a janela inteira.
         scroll.setMaximumHeight(300)
 
+        self._history_hint = QLabel("Clique numa transcrição pra ver o texto completo.")
+        self._history_hint.setObjectName("historyHint")
+
+        refresh_btn = QPushButton("Atualizar")
+        refresh_btn.setObjectName("historyRefreshButton")
+        refresh_btn.setCursor(Qt.PointingHandCursor)
+        refresh_btn.setFixedWidth(80)
+        refresh_btn.clicked.connect(self._refresh_history)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.addWidget(self._history_hint, 1)
+        header.addWidget(refresh_btn)
+
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(4, 16, 4, 8)
         layout.setSpacing(8)
-        if entries:
-            hint = QLabel("Clique numa transcrição pra ver o texto completo.")
-            hint.setObjectName("historyHint")
-            layout.addWidget(hint)
+        layout.addLayout(header)
         layout.addWidget(scroll)
+
+        self._refresh_history()
+
+        # com o painel aberto, uma transcricao nova precisa aparecer
+        # sozinha -- so redesenha quando o conteudo mudou de verdade,
+        # senao um item que voce expandiu fecharia sozinho a cada tique.
+        self._history_timer = QTimer(self)
+        self._history_timer.timeout.connect(self._refresh_history)
+        self._history_timer.start(1500)
         return tab
+
+    def _refresh_history(self):
+        entries = history.load()
+        if entries == self._history_entries:
+            return
+        self._history_entries = entries
+
+        while self._history_layout.count():
+            item = self._history_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                # setParent(None) tira da arvore na hora; so o
+                # deleteLater() deixaria o widget velho pendurado ate o
+                # event loop processar a destruicao.
+                widget.setParent(None)
+                widget.deleteLater()
+
+        if entries:
+            for entry in entries:
+                self._history_layout.addWidget(_HistoryItem(entry))
+        else:
+            empty = QLabel(
+                f"Nada transcrito ainda. As últimas {history.MAX_ITEMS} transcrições "
+                "aparecem aqui pra você copiar caso a colagem automática não pegue."
+            )
+            empty.setObjectName("guideLabel")
+            empty.setWordWrap(True)
+            self._history_layout.addWidget(empty)
+        self._history_layout.addStretch()
+        self._history_hint.setVisible(bool(entries))
 
     def _animate_tab_change(self, index):
         widget = self.tabs.widget(index)

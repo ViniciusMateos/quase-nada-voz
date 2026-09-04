@@ -1,8 +1,8 @@
 import ctypes
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal, Qt, QRect, QPropertyAnimation, QEasingCurve, Property
-from PySide6.QtGui import QPixmap, QColor, QIcon
+from PySide6.QtCore import QThread, Signal, Qt, QRect, QTimer, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtGui import QPixmap, QColor, QIcon, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 import auth
 import autostart
 import config
+import history
 import paths
 import theme
 import version
@@ -350,6 +352,74 @@ class _TitleBar(QWidget):
         self._drag_offset = None
 
 
+class _HistoryItem(QWidget):
+    """Uma transcricao do historico: clica em qualquer lugar pra expandir
+    o texto completo, ou usa o botao de copiar direto (sem precisar
+    expandir)."""
+
+    PREVIEW_CHARS = 60
+
+    def __init__(self, entry, parent=None):
+        super().__init__(parent)
+        self.setObjectName("historyItem")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setCursor(Qt.PointingHandCursor)
+        self._text = entry["text"]
+        self._expanded = False
+
+        preview = " ".join(self._text.split())
+        if len(preview) > self.PREVIEW_CHARS:
+            preview = preview[: self.PREVIEW_CHARS].rstrip() + "..."
+
+        self._when_label = QLabel(entry.get("at", ""))
+        self._when_label.setObjectName("historyWhen")
+        self._preview_label = QLabel(preview)
+        self._preview_label.setObjectName("historyPreview")
+
+        self._copy_btn = QPushButton("Copiar")
+        self._copy_btn.setObjectName("historyCopyButton")
+        self._copy_btn.setCursor(Qt.PointingHandCursor)
+        self._copy_btn.setFixedWidth(70)
+        self._copy_btn.clicked.connect(self._copy)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(8)
+        header.addWidget(self._when_label)
+        header.addWidget(self._preview_label, 1)
+        header.addWidget(self._copy_btn)
+
+        self._full_label = QLabel(self._text)
+        self._full_label.setObjectName("historyFull")
+        self._full_label.setWordWrap(True)
+        self._full_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._full_label.setVisible(False)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
+        layout.addLayout(header)
+        layout.addWidget(self._full_label)
+
+    def _copy(self):
+        QGuiApplication.clipboard().setText(self._text)
+        self._copy_btn.setText("Copiado!")
+        QTimer.singleShot(1200, lambda: self._copy_btn.setText("Copiar"))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._toggle()
+            event.accept()
+
+    def _toggle(self):
+        # expandir troca a previa de uma linha pelo texto completo -- a
+        # area rolavel da aba absorve a altura extra, entao a janela nao
+        # fica pulando de tamanho.
+        self._expanded = not self._expanded
+        self._full_label.setVisible(self._expanded)
+        self._preview_label.setVisible(not self._expanded)
+
+
 class _LoginTestThread(QThread):
     finished_ok = Signal()
     finished_error = Signal(str)
@@ -543,6 +613,7 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(general_tab, "Configurações")
         tabs.addTab(account_tab, "Conta")
+        tabs.addTab(self._build_history_tab(), "Histórico")
         tabs.currentChanged.connect(self._animate_tab_change)
         self.tabs = tabs
 
@@ -578,6 +649,49 @@ class SettingsDialog(QDialog):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(panel)
+
+    def _build_history_tab(self):
+        """Ultimas transcricoes salvas. Serve principalmente pra quando a
+        colagem automatica nao cai onde devia (acesso remoto, janela que
+        perdeu o foco) -- o texto continua aqui pra copiar na mao."""
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(0, 0, 0, 0)
+        inner_layout.setSpacing(6)
+
+        entries = history.load()
+        if entries:
+            for entry in entries:
+                inner_layout.addWidget(_HistoryItem(entry))
+        else:
+            empty = QLabel(
+                f"Nada transcrito ainda. As últimas {history.MAX_ITEMS} transcrições "
+                "aparecem aqui pra você copiar caso a colagem automática não pegue."
+            )
+            empty.setObjectName("guideLabel")
+            empty.setWordWrap(True)
+            inner_layout.addWidget(empty)
+        inner_layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidget(inner)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # teto de altura pra uma transcricao longa expandida rolar aqui
+        # dentro em vez de esticar a janela inteira.
+        scroll.setMaximumHeight(300)
+
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(4, 16, 4, 8)
+        layout.setSpacing(8)
+        if entries:
+            hint = QLabel("Clique numa transcrição pra ver o texto completo.")
+            hint.setObjectName("historyHint")
+            layout.addWidget(hint)
+        layout.addWidget(scroll)
+        return tab
 
     def _animate_tab_change(self, index):
         widget = self.tabs.widget(index)

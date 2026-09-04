@@ -6,6 +6,7 @@ session_cookies.json
 token_cache.json
 .browser_profile/
 quase_nada_voz.log
+history.json
 login_debug.png
 build/
 dist/

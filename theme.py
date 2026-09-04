@@ -182,6 +182,73 @@ QTabBar::tab:hover {{
     font-size: 10px;
     padding-top: 8px;
 }}
+#historyHint {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+}}
+#historyItem {{
+    background-color: {BG_INPUT};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+#historyItem:hover {{
+    border: 1px solid {TURQUOISE};
+}}
+#historyWhen {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+}}
+#historyPreview {{
+    color: {TEXT};
+    font-size: 12px;
+}}
+#historyFull {{
+    color: {TEXT};
+    font-size: 12px;
+}}
+#historyCopyButton {{
+    background-color: transparent;
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    padding: 4px 8px;
+}}
+#historyCopyButton:hover {{
+    border: 1px solid {TURQUOISE};
+    color: {TEXT};
+}}
+#historyCopyButton:pressed {{
+    background-color: {TURQUOISE};
+    border: 1px solid {TURQUOISE};
+    color: #0a0a0a;
+}}
+QScrollArea {{
+    background: transparent;
+    border: none;
+}}
+QScrollArea > QWidget > QWidget {{
+    background: transparent;
+}}
+QScrollBar:vertical {{
+    background: transparent;
+    width: 8px;
+    margin: 0;
+}}
+QScrollBar::handle:vertical {{
+    background-color: {BORDER};
+    border-radius: 4px;
+    min-height: 24px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background-color: {TURQUOISE};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
 #updateNotesLabel {{
     color: {TEXT_MUTED};
     font-size: 12px;

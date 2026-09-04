@@ -6,6 +6,7 @@ import win32clipboard
 import win32con
 
 import auth
+import history
 from logger import log
 
 TRANSCRIBE_URL = "https://chatgpt.com/backend-api/transcribe"
@@ -89,6 +90,10 @@ def transcribe_and_paste(wav_bytes, oai_device_id):
             return "silence"
 
         log(f"Transcrito: {text[:80]}")
+        # salva no historico ANTES de colar: se a colagem cair na janela
+        # errada (acesso remoto, por exemplo) ou falhar, o texto ainda
+        # da pra recuperar/copiar pelo painel.
+        history.add(text)
         try:
             paste_text(text)
         except Exception as e:

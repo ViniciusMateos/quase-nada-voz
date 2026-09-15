@@ -1,4 +1,5 @@
 import io
+import threading
 import wave
 
 import numpy as np
@@ -71,45 +72,105 @@ def list_input_devices():
     return devices
 
 
+def _close_quietly(stream):
+    try:
+        stream.stop()
+        stream.close()
+    except Exception:
+        pass
+
+
 class Recorder:
     """Captura audio do microfone. Enquanto `recording` estiver ligado,
     acumula frames e chama `on_bands` a cada bloco com os niveis (0..1)
     de N_BANDS faixas de frequencia, pra desenhar um equalizador ao vivo
-    (mostra so o nivel atual, sem historico/scroll)."""
+    (mostra so o nivel atual, sem historico/scroll).
+
+    Abre um stream NOVO a cada gravacao e fecha no fim. Antes o stream
+    ficava aberto direto desde que o app subia -- depois de dias rodando
+    (suspensao do USB do headset, queda do acesso remoto) ele continuava
+    entregando audio com nivel plausivel, mas corrompido: a API recebia
+    fala e devolvia vazio ou lixo. Abrir custa ~80ms, menos do que alguem
+    leva pra comecar a falar depois de apertar a tecla -- e de brinde o
+    microfone fica livre enquanto nao esta gravando."""
 
     def __init__(self, on_bands=None, device_name=None):
         self.recording = False
         self._frames = []
         self._on_bands = on_bands
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="int16",
-            device=resolve_device_index(device_name),
-            callback=self._callback,
-        )
+        self._device_name = device_name
+        self._stream = None
+        # cada gravacao ganha um numero; stream/callback de uma gravacao
+        # que ja acabou (toque rapido, stream antigo ainda fechando) se
+        # reconhece como velho e nao mistura audio na gravacao atual.
+        self._session = 0
+        self._lock = threading.Lock()
+        self._driver_warnings = set()
 
-    def _callback(self, indata, frames, time_info, status):
-        if not self.recording:
-            return
-        self._frames.append(indata.copy())
-        if self._on_bands:
-            self._on_bands(_compute_bands(indata))
+    def _make_callback(self, session):
+        def callback(indata, frames, time_info, status):
+            if status:
+                self._driver_warnings.add(str(status).strip())
+            if not self.recording or session != self._session:
+                return
+            self._frames.append(indata.copy())
+            if self._on_bands:
+                self._on_bands(_compute_bands(indata))
+        return callback
 
     def start(self):
-        self._frames = []
-        self.recording = True
+        """Nao bloqueia: e chamado de dentro do hook de teclado global, e
+        o Windows remove o hook em silencio se ele demorar pra responder.
+        Abrir o microfone (que pode levar bem mais que 80ms se o USB
+        estiver acordando) acontece numa thread separada."""
+        with self._lock:
+            self._session += 1
+            session = self._session
+            self._frames = []
+            self._driver_warnings = set()
+            self.recording = True
+        threading.Thread(target=self._open, args=(session,), daemon=True).start()
+
+    def _open(self, session):
+        try:
+            stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="int16",
+                device=resolve_device_index(self._device_name),
+                callback=self._make_callback(session),
+            )
+            stream.start()
+        except Exception as e:
+            log(f"Falha ao abrir o microfone: {e}")
+            return
+        with self._lock:
+            if session == self._session and self.recording:
+                self._stream = stream
+                return
+        # a gravacao ja acabou enquanto o microfone abria
+        _close_quietly(stream)
 
     def stop(self):
         """Para de gravar e retorna os bytes de um WAV mono 16khz/16bit,
         ou None se nao capturou nada."""
-        self.recording = False
-        if not self._frames:
+        with self._lock:
+            self.recording = False
+            self._session += 1
+            stream, self._stream = self._stream, None
+            frames, self._frames = self._frames, []
+            warnings = self._driver_warnings
+        if stream is not None:
+            # fechar espera o driver -- fora do hook de teclado tambem
+            threading.Thread(target=_close_quietly, args=(stream,), daemon=True).start()
+        if warnings:
+            log(f"Avisos do driver de audio durante a gravacao: {', '.join(sorted(warnings))}")
+
+        if not frames:
             log("Nenhum audio capturado")
             return None
 
-        audio_data = np.concatenate(self._frames, axis=0)
-        self._frames = []
+        audio_data = np.concatenate(frames, axis=0)
 
         peak = int(np.abs(audio_data).max()) if audio_data.size else 0
         log(f"Audio: {len(audio_data) / SAMPLE_RATE:.1f}s, pico {peak}")
@@ -125,7 +186,14 @@ class Recorder:
         return wav_io.getvalue()
 
     def open_stream(self):
-        self._stream.start()
+        # o stream agora abre sob demanda em start() -- mantido so pra
+        # nao quebrar quem chama
+        pass
 
     def close_stream(self):
-        self._stream.stop()
+        with self._lock:
+            self.recording = False
+            self._session += 1
+            stream, self._stream = self._stream, None
+        if stream is not None:
+            _close_quietly(stream)

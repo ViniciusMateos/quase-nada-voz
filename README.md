@@ -17,7 +17,13 @@ No painel de Configurações (clique na bolinha ou no ícone da bandeja) dá pra
 
 **Aba Histórico:** guarda as últimas 5 transcrições. Serve pra quando a colagem automática não cai onde devia (acesso remoto, janela que perdeu o foco) — clique numa transcrição pra ver o texto completo, ou use o botão "Copiar" e cole você mesmo. Só as 5 últimas ficam salvas; as mais antigas somem sozinhas.
 
-O app se atualiza sozinho: quando sair versão nova, ele avisa e atualiza com um clique.
+**Sem campo de texto em foco:** se na hora de colar o app percebe que não tem onde colar (área de trabalho, lista de arquivos, janela de acesso remoto), ele não cola e mostra um balãozinho do lado da bolinha com o texto e dois botões: **Copiar** e **Ver no histórico**. Na dúvida, ele cola normalmente.
+
+**Bolinha vermelha:** quer dizer que a conta não está funcionando (login não feito, sessão vencida, sem internet). Nesse estado o app nem tenta ditar — passe o mouse pra ver o motivo e clique pra resolver nas Configurações, aba Conta (o botão "Verificar agora" reconfere na hora).
+
+Na primeira vez que você abre o painel ele te leva por um passo a passo rápido explicando cada parte. Dá pra rever quando quiser na aba **Tutorial**.
+
+O app se atualiza sozinho: quando sair versão nova, ele avisa e atualiza com um clique — sai do ar por alguns segundos e volta contando de qual versão pra qual foi.
 
 **Sobre a senha:** fica salva localmente sem criptografia (é o jeito mais simples de automatizar o login) — qualquer processo com acesso ao seu usuário Windows consegue ler. E como isso usa os endpoints internos do site da OpenAI (não é API oficial), pode violar os termos de uso deles e pode quebrar se a OpenAI mudar o login.
 

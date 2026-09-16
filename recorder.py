@@ -5,6 +5,7 @@ import wave
 import numpy as np
 import sounddevice as sd
 
+import paths
 from logger import log
 
 SAMPLE_RATE = 16000
@@ -173,7 +174,8 @@ class Recorder:
         audio_data = np.concatenate(frames, axis=0)
 
         peak = int(np.abs(audio_data).max()) if audio_data.size else 0
-        log(f"Audio: {len(audio_data) / SAMPLE_RATE:.1f}s, pico {peak}")
+        rms = int(np.sqrt(np.mean(audio_data.astype(np.float32) ** 2))) if audio_data.size else 0
+        log(f"Audio: {len(audio_data) / SAMPLE_RATE:.1f}s, pico {peak}, rms {rms}")
         if peak < SILENCE_PEAK_THRESHOLD:
             log("Microfone praticamente mudo - checar dispositivo padrao do Windows")
 
@@ -183,7 +185,16 @@ class Recorder:
             wf.setsampwidth(2)
             wf.setframerate(SAMPLE_RATE)
             wf.writeframes(audio_data.tobytes())
-        return wav_io.getvalue()
+        data = wav_io.getvalue()
+
+        if paths.IS_DEV:
+            # so no Dev: guarda a ultima gravacao pra dar pra ouvir/analisar
+            # quando a transcricao vier vazia (sobrescreve sempre)
+            try:
+                (paths.DATA_DIR / "ultima_gravacao.wav").write_bytes(data)
+            except OSError:
+                pass
+        return data
 
     def open_stream(self):
         # o stream agora abre sob demanda em start() -- mantido so pra

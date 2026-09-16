@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.0] — 2026-09-16
+
+### Adicionado
+- feat: o app trava o ditado quando a conta não está funcionando — a bolinha fica vermelha, o motivo aparece ao passar o mouse e clicar leva pro login, em vez de gravar e abrir um navegador do nada no meio do trabalho
+- feat: aba Conta mostra o status da sessão, com botão "Verificar agora"
+- feat: quando não tem campo de texto em foco (área de trabalho, janela de acesso remoto), o texto não é colado às cegas — aparece um balãozinho ao lado da bolinha com Copiar e "Ver no histórico". Na dúvida, cola normalmente
+- feat: passo a passo guiado na primeira abertura do painel, e aba Tutorial pra rever quando quiser
+- feat: olho na senha, com a senha "descriptografando" ao mostrar e voltando pra bolinha ao esconder
+- feat: build de dev separado (`python build.py --dev`), que roda ao mesmo tempo que o app normal com ícone, dados e atalhos próprios
+
+### Corrigido
+- fix: atualizar fechava o app e não abria a versão nova — o `.exe` novo herdava o ambiente do antigo e morria tentando rodar de uma pasta temporária que já não existia. Agora ele sobe limpo e, ao voltar, avisa na tela de qual versão pra qual foi
+- fix: dá pra escolher a própria tecla atual como atalho — antes apertar F9 pra confirmar F9 começava a gravar em vez de ser capturado
+
+### Modificado
+- update: o painel não tem mais botão Salvar: cada mudança grava na hora
+- update: log de áudio traz o rms junto do pico, e o build de dev guarda a última gravação em wav pra diagnóstico
+
+### Documentação
+- docs: README explica a bolinha vermelha e o tutorial; DEVELOPMENT documenta o canal dev/prod, a troca do `.exe` em execução e a trava de sessão
+
 ## [1.1.1] — 2026-09-04
 
 ### Adicionado

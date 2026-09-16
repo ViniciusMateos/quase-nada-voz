@@ -5,3 +5,4 @@ pywin32
 python-dotenv
 playwright
 PySide6
+comtypes

@@ -6,6 +6,7 @@ import win32clipboard
 import win32con
 
 import auth
+import focus
 import history
 from logger import log
 
@@ -42,12 +43,19 @@ def paste_text(text):
     win32clipboard.CloseClipboard()
 
 
-def transcribe_and_paste(wav_bytes, oai_device_id):
-    """Manda o audio pra API e cola o texto no cursor. Retorna:
+def transcribe_and_paste(wav_bytes, oai_device_id, on_saved=None):
+    """Manda o audio pra API e cola o texto no cursor. Retorna uma tupla
+    (status, texto), com status:
     - "ok": transcreveu e colou
+    - "no_target": transcreveu, mas nao tinha campo de texto em foco --
+      nao colou (o texto fica no historico e no retorno)
     - "silence": audio sem fala reconhecivel (mic mudo/baixo) -- nao e
       problema de sessao, entao nao forca relogin
-    - "error": falha de rede/auth/parsing, ou falhou ao colar
+    - "auth_error": nao conseguiu autenticar (sessao/login)
+    - "error": falha de rede/parsing, ou falhou ao colar
+
+    on_saved(texto) e chamado assim que a transcricao entra no historico,
+    antes de colar -- pra quem mostra o historico atualizar na hora.
 
     So reloga (abre o navegador) na 2a tentativa de 401/403 -- a 1a
     tenta renovar so pelo cookie salvo, sem navegador nenhum."""
@@ -59,7 +67,7 @@ def transcribe_and_paste(wav_bytes, oai_device_id):
             token = auth.get_access_token(force_relogin=force_relogin)
         except Exception as e:
             log(f"Falha ao obter token: {e}")
-            return "error"
+            return "auth_error", None
 
         headers = {
             "authorization": f"Bearer {token}",
@@ -72,7 +80,7 @@ def transcribe_and_paste(wav_bytes, oai_device_id):
             response = requests.post(TRANSCRIBE_URL, headers=headers, files=files, timeout=60)
         except requests.RequestException as e:
             log(f"Falha de rede: {e}")
-            return "error"
+            return "error", None
 
         if response.status_code in (401, 403):
             auth.invalidate_token_cache()
@@ -82,24 +90,33 @@ def transcribe_and_paste(wav_bytes, oai_device_id):
 
         if response.status_code != 200:
             log(f"HTTP {response.status_code}: {response.text[:200]}")
-            return "error"
+            return "error", None
 
         text = response.json().get("text", "").strip()
         if not text:
             log("Nada reconhecido no audio - nada colado")
-            return "silence"
+            return "silence", None
 
         log(f"Transcrito: {text[:80]}")
         # salva no historico ANTES de colar: se a colagem cair na janela
         # errada (acesso remoto, por exemplo) ou falhar, o texto ainda
         # da pra recuperar/copiar pelo painel.
         history.add(text)
+        if on_saved:
+            on_saved(text)
+
+        # checado agora (nao quando comecou a gravar): o que importa e
+        # onde o foco esta na hora de colar
+        if focus.text_target() == focus.NO:
+            log("Nenhum campo de texto em foco - nao colado (fica no historico)")
+            return "no_target", text
+
         try:
             paste_text(text)
         except Exception as e:
             log(f"Texto transcrito mas falhou ao colar: {e}")
-            return "error"
-        return "ok"
+            return "error", text
+        return "ok", text
 
     log("Nao consegui autenticar depois de 3 tentativas")
-    return "error"
+    return "auth_error", None

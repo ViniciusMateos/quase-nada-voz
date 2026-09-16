@@ -1,16 +1,45 @@
+import json
 import os
+import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import requests
 from PySide6.QtCore import QThread, Signal
 
 import paths
+from logger import log
 from version import APP_VERSION
 
 GITHUB_REPO = "ViniciusMateos/quase-nada-voz"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+# a versao nova e aberta com esse argumento (com a versao antiga junto,
+# "--after-update=1.1.1"): sabe que precisa esperar a antiga terminar de
+# fechar e consegue avisar na tela de qual versao pra qual veio
+AFTER_UPDATE_FLAG = "--after-update"
+
+
+def previous_version_from_args(argv):
+    """Versao de onde o app acabou de vir, ou None se nao foi
+    atualizacao. Aceita o formato antigo (flag sem valor)."""
+    for arg in argv:
+        if arg == AFTER_UPDATE_FLAG:
+            return ""
+        if arg.startswith(AFTER_UPDATE_FLAG + "="):
+            return arg.split("=", 1)[1]
+    return None
+
+# o Dev nunca olha as Releases (baixaria o app normal por cima dele). Pra
+# testar o fluxo de atualizacao nele, basta criar esse arquivo na pasta de
+# dados do Dev: {"version": "9.9.9", "notes": "...", "file": "C:\\...\\novo.exe"}
+DEV_FEED_FILE = paths.DATA_DIR / "update_feed.json"
+
+_DETACHED_PROCESS = 0x00000008
+_CREATE_NEW_PROCESS_GROUP = 0x00000200
 
 
 def _parse_version(v):
@@ -25,11 +54,30 @@ def _parse_version(v):
     return tuple(parts)
 
 
+def updates_enabled():
+    if not paths.FROZEN:
+        return False
+    return DEV_FEED_FILE.exists() if paths.IS_DEV else True
+
+
+def _check_dev_feed():
+    try:
+        data = json.loads(DEV_FEED_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    version = str(data.get("version", ""))
+    source = data.get("file")
+    if not version or not source or _parse_version(version) <= _parse_version(APP_VERSION):
+        return None
+    return {"version": version, "notes": data.get("notes", "") or "", "download_url": source}
+
+
 def check_for_update(timeout=10):
-    """Consulta a ultima release publica no GitHub. Retorna um dict com
-    versao/notas/link de download se tiver uma versao mais nova que a
-    instalada, ou None se nao tiver (ou se a checagem falhar -- checar
+    """Retorna um dict com versao/notas/origem se tiver versao mais nova
+    que a instalada, ou None (inclusive se a checagem falhar -- checar
     atualizacao nunca pode impedir o app de abrir normalmente)."""
+    if paths.IS_DEV:
+        return _check_dev_feed()
     try:
         resp = requests.get(
             LATEST_RELEASE_URL, timeout=timeout, headers={"Accept": "application/vnd.github+json"}
@@ -52,57 +100,119 @@ def check_for_update(timeout=10):
         return None
 
 
-def download_update(download_url, timeout=60):
-    """Baixa o novo .exe pra uma pasta temporaria dentro do DATA_DIR.
-    Levanta excecao se falhar -- quem chama decide o que mostrar."""
-    dest = paths.DATA_DIR / "update" / "QuaseNadaVoz_novo.exe"
+def download_update(source, on_progress=None, timeout=60):
+    """Baixa (ou copia, no feed de teste do Dev) o novo .exe pra pasta de
+    dados. on_progress(0..100) quando da pra saber o tamanho. Levanta
+    excecao se falhar -- quem chama decide o que mostrar."""
+    dest = paths.DATA_DIR / "update" / f"{paths.APP_ID}_novo.exe"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(download_url, stream=True, timeout=timeout) as resp:
-        resp.raise_for_status()
-        with open(dest, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=1024 * 256):
-                if chunk:
+    partial = dest.with_suffix(".part")
+
+    if not str(source).lower().startswith(("http://", "https://")):
+        shutil.copyfile(source, partial)
+        if on_progress:
+            on_progress(100)
+    else:
+        with requests.get(source, stream=True, timeout=timeout) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get("content-length") or 0)
+            done = 0
+            last_pct = -1
+            with open(partial, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 256):
+                    if not chunk:
+                        continue
                     f.write(chunk)
+                    done += len(chunk)
+                    if total and on_progress:
+                        pct = min(100, done * 100 // total)
+                        if pct != last_pct:
+                            last_pct = pct
+                            on_progress(pct)
+    # so vira o arquivo "de verdade" se o download terminou inteiro
+    partial.replace(dest)
     return dest
 
 
-def apply_update_and_restart(new_exe_path):
-    """Troca o .exe em execucao pelo novo e reabre o app. So faz sentido
-    rodando empacotado (sys.executable e o proprio .exe nesse caso) --
-    rodando do codigo-fonte nao ha o que substituir.
+def _clean_launch_env():
+    """Ambiente pra abrir OUTRO .exe do PyInstaller a partir deste.
 
-    O Windows nao deixa sobrescrever um .exe enquanto ele esta rodando,
-    entao a troca precisa acontecer DEPOIS que esse processo fechar: um
-    script .bat descartavel espera o PID sumir, move o novo .exe por
-    cima do antigo e abre de novo."""
+    O .exe empacotado roda com variaveis internas do PyInstaller
+    (_PYI_APPLICATION_HOME_DIR, _PYI_PARENT_PROCESS_LEVEL...). Herdadas, o
+    .exe novo acha que e um subprocesso DESTE e tenta rodar da pasta
+    temporaria deste -- que e apagada quando este fecha, e ele morre sem
+    aparecer nada. Esse era o bug de "atualiza, fecha e nao volta"."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("_PYI_")}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
+def apply_update_and_restart(new_exe_path):
+    """Poe o .exe novo no lugar do atual e abre ele. So faz sentido
+    rodando empacotado.
+
+    Nao da pra sobrescrever um .exe em execucao, mas da pra RENOMEAR:
+    o atual vira .old, o novo assume o nome original, e ele e aberto
+    direto, com o ambiente limpo (ver _clean_launch_env). A versao nova espera esta
+    fechar antes de subir (AFTER_UPDATE_FLAG) e apaga o .old. Se algo
+    falhar no caminho, desfaz e o app atual continua como estava."""
     if not paths.FROZEN:
         raise RuntimeError("Atualização automática só funciona no .exe empacotado.")
 
-    current_exe = Path(sys.executable)
-    pid = os.getpid()
-    bat_path = paths.DATA_DIR / "update" / "aplicar_update.bat"
-    bat_path.parent.mkdir(parents=True, exist_ok=True)
-    bat_content = (
-        "@echo off\r\n"
-        ":esperando\r\n"
-        f'tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >NUL\r\n'
-        "if not errorlevel 1 (\r\n"
-        "    timeout /t 1 /nobreak >NUL\r\n"
-        "    goto esperando\r\n"
-        ")\r\n"
-        f'move /y "{new_exe_path}" "{current_exe}" >NUL\r\n'
-        f'start "" "{current_exe}"\r\n'
-        'del "%~f0"\r\n'
-    )
-    bat_path.write_text(bat_content, encoding="utf-8")
+    current = Path(sys.executable)
+    new = Path(new_exe_path)
+    old = current.with_name(f"{current.name}.old-{int(time.time())}")
 
-    DETACHED_PROCESS = 0x00000008
-    CREATE_NEW_PROCESS_GROUP = 0x00000200
-    subprocess.Popen(
-        ["cmd.exe", "/c", str(bat_path)],
-        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
-        close_fds=True,
-    )
+    current.replace(old)
+    try:
+        shutil.move(str(new), str(current))
+    except Exception:
+        old.replace(current)
+        raise
+
+    try:
+        subprocess.Popen(
+            [str(current), f"{AFTER_UPDATE_FLAG}={APP_VERSION}"],
+            creationflags=_DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+            env=_clean_launch_env(),
+        )
+    except Exception:
+        try:
+            current.replace(new)
+            old.replace(current)
+        except OSError:
+            pass
+        raise
+
+    if paths.IS_DEV:
+        # feed de teste consumido: senao a "versao nova" (que no teste e o
+        # mesmo .exe) pediria pra atualizar de novo pra sempre
+        DEV_FEED_FILE.unlink(missing_ok=True)
+    log(f"Atualizacao aplicada, reabrindo: {current}")
+
+
+def cleanup_old_executables(retries=40, interval_s=0.5):
+    """Apaga sobras .old de atualizacoes anteriores. O processo antigo
+    pode levar uns segundos pra soltar o arquivo, entao tenta de novo em
+    segundo plano."""
+    if not paths.FROZEN:
+        return
+    current = Path(sys.executable)
+
+    def run():
+        for _ in range(retries):
+            leftovers = list(current.parent.glob(f"{current.name}.old-*"))
+            if not leftovers:
+                return
+            for f in leftovers:
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+            time.sleep(interval_s)
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 class UpdateCheckThread(QThread):
@@ -115,6 +225,7 @@ class UpdateCheckThread(QThread):
 
 
 class UpdateDownloadThread(QThread):
+    progress = Signal(int)
     done = Signal(str)
     failed = Signal(str)
 
@@ -124,7 +235,7 @@ class UpdateDownloadThread(QThread):
 
     def run(self):
         try:
-            path = download_update(self._url)
+            path = download_update(self._url, on_progress=self.progress.emit)
             self.done.emit(str(path))
         except Exception as e:
             self.failed.emit(str(e))

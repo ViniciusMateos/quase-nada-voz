@@ -70,6 +70,11 @@ class HotkeyListener:
         self._recording = False
         self._toggle_mode = False
         self._key_down_time = 0.0
+        # pausado = deixa TODA tecla passar direto (inclusive a do atalho).
+        # Usado enquanto o usuario escolhe uma tecla nova no painel: sem
+        # isso, apertar a tecla atual comecava a gravar em vez de ser
+        # capturada pelo campo.
+        self.paused = False
 
         self._pointer = ctypes.WINFUNCTYPE(
             ctypes.c_int, ctypes.c_int, wintypes.WPARAM, ctypes.POINTER(KBDLLHOOKSTRUCT)
@@ -90,7 +95,15 @@ class HotkeyListener:
         self._recording = True
         self._toggle_mode = False
         self._key_down_time = time.time()
-        self._on_start()
+        # on_start pode recusar (ex: sessao invalida) devolvendo False --
+        # sem isso o listener achava que estava gravando e o proximo toque
+        # virava "parar" em vez de "comecar"
+        if self._on_start() is False:
+            self._recording = False
+
+    def stop_if_recording(self):
+        if self._recording:
+            self._stop()
 
     def _stop(self):
         self._recording = False
@@ -98,7 +111,7 @@ class HotkeyListener:
         self._on_stop()
 
     def _hook_proc(self, nCode, wParam, lParam):
-        if nCode >= 0 and lParam.contents.vkCode == self.vk_code:
+        if not self.paused and nCode >= 0 and lParam.contents.vkCode == self.vk_code:
             if wParam in (WM_KEYDOWN, WM_SYSKEYDOWN):
                 if not self._recording:
                     self._start()

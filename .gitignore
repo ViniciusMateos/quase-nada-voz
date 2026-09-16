@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 session_cookies.json
 token_cache.json
+session_meta.json
 .browser_profile/
 quase_nada_voz.log
 history.json
@@ -11,3 +12,4 @@ login_debug.png
 build/
 dist/
 *.spec
+.dev-data/

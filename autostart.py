@@ -5,7 +5,7 @@ from pathlib import Path
 import paths
 
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_VALUE_NAME = "QuaseNadaVoz"
+_VALUE_NAME = paths.APP_ID
 
 
 def _command():

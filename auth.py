@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import shutil
 import time
 from datetime import datetime
 
@@ -16,6 +17,11 @@ COOKIE_FILE = paths.DATA_DIR / "session_cookies.json"
 TOKEN_CACHE_FILE = paths.DATA_DIR / "token_cache.json"
 PROFILE_DIR = paths.DATA_DIR / ".browser_profile"
 DEBUG_SCREENSHOT = paths.DATA_DIR / "login_debug.png"
+# de qual email e a sessao salva (cookies + perfil do navegador). Trocar o
+# email no painel nao apaga mais a sessao na hora -- um erro de digitacao
+# derrubaria o login a toa. Em vez disso, email diferente do da sessao
+# conta como "expirada" e o proximo login limpa a sessao antiga.
+SESSION_META_FILE = paths.DATA_DIR / "session_meta.json"
 
 LOGIN_URL = "https://chatgpt.com/auth/login"
 SESSION_URL = "https://chatgpt.com/api/auth/session"
@@ -108,6 +114,13 @@ def _login_with_playwright():
     password = os.getenv("OPENAI_PASSWORD")
     if not email or not password:
         raise RuntimeError("OPENAI_EMAIL / OPENAI_PASSWORD nao configurados no .env")
+
+    if _session_email_mismatch(email):
+        # outra conta: o perfil do navegador ainda esta logado na antiga e
+        # o login "ja logado" pegaria o token dela
+        shutil.rmtree(PROFILE_DIR, ignore_errors=True)
+        for f in (COOKIE_FILE, TOKEN_CACHE_FILE):
+            f.unlink(missing_ok=True)
 
     with sync_playwright() as p:
         launch_kwargs = dict(
@@ -202,6 +215,7 @@ def _login_with_playwright():
 
             cookies = context.cookies()
             _save_json(COOKIE_FILE, cookies)
+            _save_json(SESSION_META_FILE, {"email": email})
         finally:
             context.close()
 
@@ -209,6 +223,62 @@ def _login_with_playwright():
         raise RuntimeError(f"Login concluiu mas nao veio accessToken: {token_json}")
 
     return token_json["accessToken"], token_json.get("expires")
+
+
+SESSION_OK = "ok"
+SESSION_EXPIRED = "expired"
+SESSION_NO_CREDENTIALS = "no_credentials"
+SESSION_OFFLINE = "offline"
+
+
+def check_session():
+    """Diz se da pra transcrever agora, SEM nunca abrir navegador:
+    - "ok": a sessao salva vale (e o token em cache e renovado de brinde)
+    - "no_credentials": sem sessao valida e sem email/senha pra entrar
+    - "expired": tem email/senha, mas a sessao salva nao vale mais --
+      precisa entrar de novo pela aba Conta
+    - "offline": nao deu pra falar com o chatgpt.com (rede caiu, bloqueio
+      temporario). Isso nao prova nada sobre a conta."""
+    has_credentials = bool(os.getenv("OPENAI_EMAIL") and os.getenv("OPENAI_PASSWORD"))
+    cookies = _load_json(COOKIE_FILE)
+    if not cookies:
+        return SESSION_EXPIRED if has_credentials else SESSION_NO_CREDENTIALS
+    if has_credentials and _session_email_mismatch(os.getenv("OPENAI_EMAIL")):
+        return SESSION_EXPIRED
+
+    jar = {c["name"]: c["value"] for c in cookies if "name" in c and "value" in c}
+    try:
+        resp = requests.get(SESSION_URL, cookies=jar, headers={"user-agent": UA}, timeout=15)
+    except requests.RequestException:
+        return SESSION_OFFLINE
+    # sem login o endpoint responde 200 com {} -- outro status (desafio do
+    # Cloudflare, erro 5xx) nao diz se a sessao morreu
+    if resp.status_code != 200:
+        return SESSION_OFFLINE
+    try:
+        data = resp.json()
+    except ValueError:
+        return SESSION_OFFLINE
+
+    token = data.get("accessToken")
+    if not token:
+        return SESSION_EXPIRED if has_credentials else SESSION_NO_CREDENTIALS
+    _save_json(TOKEN_CACHE_FILE, {"access_token": token, "expires_at": _parse_expires(data.get("expires"))})
+    return SESSION_OK
+
+
+def _session_email_mismatch(email):
+    meta = _load_json(SESSION_META_FILE) or {}
+    saved = (meta.get("email") or "").strip().lower()
+    return bool(saved and email and saved != email.strip().lower())
+
+
+def remember_session_email(email):
+    """Sessoes feitas antes de existir o session_meta.json nao sabem de
+    qual email sao. Chamado com o email ANTIGO logo antes de trocar, pra
+    essa associacao nao se perder."""
+    if email and COOKIE_FILE.exists() and not SESSION_META_FILE.exists():
+        _save_json(SESSION_META_FILE, {"email": email.strip()})
 
 
 def invalidate_token_cache():

@@ -2,7 +2,7 @@ import ctypes
 import ctypes.wintypes as wintypes
 
 from PySide6.QtCore import Qt, QObject, Signal, QRectF, QRect, QPoint, QPointF, QTimer, QPropertyAnimation, QEasingCurve, Property
-from PySide6.QtGui import QPainter, QColor, QPainterPath, QGuiApplication, QPixmap, QPen
+from PySide6.QtGui import QPainter, QColor, QPainterPath, QGuiApplication, QPixmap, QPen, QFont, QFontMetrics
 from PySide6.QtWidgets import QWidget
 
 import paths
@@ -23,11 +23,32 @@ ACTIVE_RADIUS = 14
 DOG_RING_SIZE = 28
 
 EDGE_MARGIN = 32
-DOG_PATH = paths.ASSETS_DIR / "dog.png"
+DOG_PATH = paths.DOG_PATH
 HOVER_DEBOUNCE_MS = 40
 
 BG_COLOR = QColor(18, 18, 22, 210)
 RING_COLOR = QColor(255, 255, 255, 230)
+
+# sessao invalida: cachorro/anel ficam vermelhos parados, e tentar ditar
+# abre uma pilula vermelha com o motivo
+ALERT_COLOR = QColor(239, 68, 68, 235)
+ALERT_BG_COLOR = QColor(52, 14, 18, 230)
+ALERT_BORDER_COLOR = QColor(239, 68, 68, 150)
+ALERT_TEXT_COLOR = QColor(254, 205, 205)
+MESSAGE_H = 34
+MESSAGE_RADIUS = 14
+MESSAGE_ICON_SIZE = 26
+MESSAGE_PAD_X = 12
+MESSAGE_ICON_GAP = 8
+MESSAGE_FONT_PX = 12
+MESSAGE_DURATION_MS = 4500
+ALERT_DEFAULT_MESSAGE = "Sem login — clique para entrar"
+# a pilula nasceu pra avisar erro (vermelha), mas tambem da recado bom
+# -- ai ela usa o mesmo tom escuro da bolinha parada
+INFO_BG_COLOR = QColor(18, 18, 22, 235)
+INFO_BORDER_COLOR = QColor(255, 255, 255, 70)
+INFO_TEXT_COLOR = QColor(238, 238, 242)
+INFO_ICON_COLOR = QColor(245, 245, 248, 235)
 RING_WIDTH = 0.9
 RING_SPINNER_SPAN_DEG = 100
 
@@ -110,6 +131,10 @@ class FloatingWidget(QWidget):
     com um mini equalizador (niveis por faixa de frequencia, sem
     historico/scroll). Todas as trocas de tamanho sao animadas."""
 
+    # posicao/tamanho mudou (arrastar, ou as animacoes de gravar/processar)
+    # -- pra janelas "presas" na bolinha, tipo o aviso de transcricao
+    geometry_changed = Signal()
+
     def __init__(self, initial_pos=None, on_position_changed=None, on_click=None, on_context_menu=None):
         super().__init__()
         self.setWindowFlags(
@@ -142,6 +167,21 @@ class FloatingWidget(QWidget):
         # borra os detalhes). Um pouco maior que o anel de proposito,
         # pra encostar nele em vez de deixar uma linha de separacao.
         self._dog = _tinted_pixmap(DOG_PATH, DOG_RING_SIZE, QColor(245, 245, 248, 225))
+        self._dog_alert = _tinted_pixmap(DOG_PATH, DOG_RING_SIZE, ALERT_COLOR)
+        # no aviso vermelho vai a logo COMPLETA (cachorro dentro do circulo),
+        # nao o cachorro solto que a bolinha usa -- ali o circulo e desenhado
+        self._logo_alert = _tinted_pixmap(paths.LOGO_PATH, MESSAGE_ICON_SIZE, ALERT_COLOR)
+        self._logo_info = _tinted_pixmap(paths.LOGO_PATH, MESSAGE_ICON_SIZE, INFO_ICON_COLOR)
+        self._message_tone = "alert"
+        self._alert = False
+        self._alert_message = None
+        self._message = None
+        # aviso fixo (fica enquanto o mouse estiver em cima) x aviso
+        # temporario (some sozinho), que nao pode ser trocado pelo hover
+        self._message_persistent = False
+        self._message_font = QFont(self.font())
+        self._message_font.setPixelSize(MESSAGE_FONT_PX)
+        self._message_font.setWeight(QFont.DemiBold)
 
         # o "anel" e um unico elemento que ou fecha num circulo completo
         # (parado) ou abre num arco girando (carregando) -- ringFraction
@@ -171,6 +211,10 @@ class FloatingWidget(QWidget):
         self._topmost_timer = QTimer(self)
         self._topmost_timer.timeout.connect(self._reassert_topmost)
         self._topmost_timer.start(TOPMOST_REASSERT_MS)
+
+        self._message_timer = QTimer(self)
+        self._message_timer.setSingleShot(True)
+        self._message_timer.timeout.connect(self.hide_message)
 
         self._set_content_size(IDLE_SIZE, IDLE_SIZE)
         self.move(*(initial_pos or self._default_pos()))
@@ -268,7 +312,54 @@ class FloatingWidget(QWidget):
             self._display_bands[i] += (self._target_bands[i] - self._display_bands[i]) * BAR_SMOOTHING
         self.update()
 
+    def set_alert(self, active, message=None):
+        """Sessao invalida: cachorro e anel ficam vermelhos parados, e passar
+        o mouse abre a pilula vermelha com o motivo."""
+        self._alert_message = message
+        if active == self._alert:
+            return
+        self._alert = active
+        if not active and self._message_persistent:
+            self.hide_message()
+        self.update()
+        self._schedule_hover_check()
+
+    def show_message(self, text, duration_ms=MESSAGE_DURATION_MS, tone="alert"):
+        """Pilula vermelha com um aviso curto (ex: por que nao da pra
+        ditar). Clicar nela chama on_click normalmente. duration_ms=None
+        deixa fixa (usado enquanto o mouse esta em cima da bolinha)."""
+        if self._recording or self._processing:
+            return
+        self._message_persistent = duration_ms is None
+        self._message_tone = tone
+        self._message = text
+        self._hovered = False
+        metrics = QFontMetrics(self._message_font)
+        width = MESSAGE_PAD_X * 2 + MESSAGE_ICON_SIZE + MESSAGE_ICON_GAP + metrics.horizontalAdvance(text)
+        self._animate_to(width, MESSAGE_H)
+        if duration_ms is None:
+            self._message_timer.stop()
+        else:
+            self._message_timer.start(duration_ms)
+        self.update()
+
+    def hide_message(self):
+        if self._message is None:
+            return
+        self._message = None
+        self._message_persistent = False
+        self._message_timer.stop()
+        if not self._recording and not self._processing:
+            self._animate_to(IDLE_SIZE, IDLE_SIZE)
+        self.update()
+        # o mouse pode ter continuado em cima: deixa o hover decidir o
+        # tamanho final (bolinha maior, ou a pilula de novo se for alerta)
+        self._schedule_hover_check()
+
     def start_recording(self):
+        self._message = None
+        self._message_persistent = False
+        self._message_timer.stop()
         self._recording = True
         self._hovered = False
         self._target_bands = [0.0] * N_BANDS
@@ -344,7 +435,21 @@ class FloatingWidget(QWidget):
     def _apply_hover_state(self):
         if self._recording or self._processing:
             return
+        # aviso temporario na tela (ex: tentou ditar sem login): deixa ele
+        # terminar, o hover nao mexe
+        if self._message is not None and not self._message_persistent:
+            return
+
         should_hover = self.underMouse()
+        if self._alert:
+            # sem login: passar o mouse abre a pilula vermelha explicando
+            if should_hover and not self._message_persistent:
+                self._hovered = False
+                self.show_message(self._alert_message or ALERT_DEFAULT_MESSAGE, duration_ms=None)
+            elif not should_hover and self._message_persistent:
+                self.hide_message()
+            return
+
         if should_hover == self._hovered:
             return
         self._hovered = should_hover
@@ -370,6 +475,7 @@ class FloatingWidget(QWidget):
                 if self._on_position_changed:
                     self._on_position_changed(self.x(), self.y())
             elif not self._recording and self._on_click:
+                self.hide_message()
                 self._on_click()
             event.accept()
 
@@ -377,12 +483,27 @@ class FloatingWidget(QWidget):
         if self._on_context_menu:
             self._on_context_menu(event.globalPos())
 
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self.geometry_changed.emit()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.geometry_changed.emit()
+
+    def content_geometry(self):
+        """Retangulo visivel da bolinha em coordenadas de tela (sem a
+        margem transparente reservada pra sombra)."""
+        return self.geometry().adjusted(SHADOW_PAD, SHADOW_PAD, -SHADOW_PAD, -SHADOW_PAD)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
         content = self._content_rect()
-        if self._recording:
+        if self._message:
+            radius = MESSAGE_RADIUS
+        elif self._recording:
             radius = ACTIVE_RADIUS
         elif self._processing:
             radius = PROCESSING_RADIUS
@@ -394,6 +515,11 @@ class FloatingWidget(QWidget):
 
         path = QPainterPath()
         path.addRoundedRect(content, radius, radius)
+
+        if self._message:
+            self._paint_message(painter, content, path)
+            return
+
         painter.fillPath(path, BG_COLOR)
 
         if self._recording:
@@ -402,12 +528,16 @@ class FloatingWidget(QWidget):
 
         dog_ring = self._dog_ring_rect(content)
 
-        if self._dog is not None:
-            x = dog_ring.center().x() - self._dog.width() / 2
-            y = dog_ring.center().y() - self._dog.height() / 2
-            painter.drawPixmap(QPointF(x, y), self._dog)
+        # vermelho so parado: carregando continua branco (a transcricao
+        # ja passou pela autenticacao, o aviso de sessao nao vale ali)
+        alert = self._alert and not self._processing
+        dog = self._dog_alert if alert else self._dog
+        if dog is not None:
+            x = dog_ring.center().x() - dog.width() / 2
+            y = dog_ring.center().y() - dog.height() / 2
+            painter.drawPixmap(QPointF(x, y), dog)
 
-        self._paint_ring(painter, dog_ring)
+        self._paint_ring(painter, dog_ring, alert)
 
     def _paint_shadow(self, painter, content, radius):
         peak_alpha = SHADOW_OPACITY * 255
@@ -425,8 +555,8 @@ class FloatingWidget(QWidget):
             path.addRoundedRect(rect, radius + i, radius + i)
             painter.drawPath(path)
 
-    def _ring_pen(self):
-        pen = QPen(RING_COLOR)
+    def _ring_pen(self, alert=False):
+        pen = QPen(ALERT_COLOR if alert else RING_COLOR)
         pen.setWidthF(RING_WIDTH)
         pen.setCapStyle(Qt.RoundCap)
         return pen
@@ -435,16 +565,41 @@ class FloatingWidget(QWidget):
         inset = dog_ring.width() * 0.04
         return dog_ring.adjusted(inset, inset, -inset, -inset)
 
-    def _paint_ring(self, painter, dog_ring):
+    def _paint_ring(self, painter, dog_ring, alert=False):
         # fraction 0 = circulo fechado (parado); 1 = arco de
         # RING_SPINNER_SPAN_DEG girando (carregando). anima suave entre
         # os dois em vez de cross-fade de opacidade entre duas formas
         # diferentes.
         span_deg = 360 - (360 - RING_SPINNER_SPAN_DEG) * self._ring_fraction
-        painter.setPen(self._ring_pen())
+        painter.setPen(self._ring_pen(alert))
         painter.setBrush(Qt.NoBrush)
         start = -self._spin_angle * 16
         painter.drawArc(self._ring_rect(dog_ring), start, int(span_deg * 16))
+
+    def _paint_message(self, painter, content, path):
+        alert = self._message_tone != "info"
+        painter.fillPath(path, ALERT_BG_COLOR if alert else INFO_BG_COLOR)
+        border = QPen(ALERT_BORDER_COLOR if alert else INFO_BORDER_COLOR)
+        border.setWidthF(1.0)
+        painter.setPen(border)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(path)
+
+        icon_x = content.left() + MESSAGE_PAD_X
+        logo = self._logo_alert if alert else self._logo_info
+        if logo is not None:
+            icon_y = content.center().y() - logo.height() / 2
+            painter.drawPixmap(QPointF(icon_x, icon_y), logo)
+
+        text_x = icon_x + MESSAGE_ICON_SIZE + MESSAGE_ICON_GAP
+        text_rect = QRectF(text_x, content.top(), content.right() - text_x - MESSAGE_PAD_X / 2, content.height())
+        painter.setFont(self._message_font)
+        painter.setPen(ALERT_TEXT_COLOR if alert else INFO_TEXT_COLOR)
+        # durante a animacao de abrir a pilula ainda e estreita: corta com
+        # "..." em vez de vazar pra fora
+        metrics = QFontMetrics(self._message_font)
+        shown = metrics.elidedText(self._message, Qt.ElideRight, int(max(0, text_rect.width())))
+        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, shown)
 
     def _paint_bars(self, painter, content):
         gap = 5.0

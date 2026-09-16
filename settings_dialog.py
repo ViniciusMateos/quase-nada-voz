@@ -1,9 +1,13 @@
 import ctypes
+import random
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal, Qt, QRect, QTimer, QPropertyAnimation, QEasingCurve, Property
-from PySide6.QtGui import QPixmap, QColor, QIcon, QGuiApplication
+from PySide6.QtCore import (
+    QThread, Signal, Qt, QRect, QPointF, QTimer, QPropertyAnimation, QEasingCurve, Property,
+)
+from PySide6.QtGui import QPixmap, QColor, QIcon, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -25,12 +29,20 @@ import autostart
 import config
 import history
 import paths
+import session as session_mod
 import theme
 import version
 from hotkey import parse_hotkey, vk_to_name
 from recorder import list_input_devices
 
-ICON_PATH = paths.ASSETS_DIR / "icon.ico"
+ICON_PATH = paths.ICON_PATH
+EYE_ICON = paths.ASSETS_DIR / "eye.png"
+PASSWORD_ANIM_MS = 420
+# esconder e mais rapido: e so a senha virando bolinha, nao tem o que ler
+PASSWORD_HIDE_MS = 260
+PASSWORD_TICK_MS = 28
+PASSWORD_SCRAMBLE = "#@$%&*?!/\\=+<>abcdefghijkmnopqrstuvwxyz0123456789"
+PASSWORD_BULLET = "\u25cf"
 
 
 def _disable_dwm_transitions(hwnd):
@@ -256,15 +268,37 @@ GUIDE_TEXT = (
     "Como funciona: o app loga sozinho no ChatGPT usando esse email/senha "
     "(abre o Chrome só na primeira vez, ou quando a sessão expira de vez). "
     "Depois disso, a sessão fica salva e o token é renovado sozinho, sem "
-    "abrir navegador. Use \"Testar login agora\" pra forçar uma renovação "
+    "abrir navegador. Use \"Fazer login agora\" pra forçar uma renovação "
     "e confirmar que está tudo certo."
 )
+
+
+_VK_SHIFT, _VK_CONTROL, _VK_MENU = 0x10, 0x11, 0x12
+_MAPVK_VSC_TO_VK_EX = 3
+
+
+def _resolve_side_specific_vk(vk, scan_code):
+    """Shift/Ctrl/Alt chegam no Qt como a tecla generica, mas o hook global
+    ve o lado (esquerdo/direito). Sem converter, escolher Ctrl como atalho
+    nunca disparava."""
+    if vk not in (_VK_SHIFT, _VK_CONTROL, _VK_MENU) or not scan_code:
+        return vk
+    code = scan_code & 0xFF
+    if scan_code & 0x100:  # tecla estendida (lado direito do Ctrl/Alt)
+        code |= 0xE000
+    resolved = ctypes.windll.user32.MapVirtualKeyW(code, _MAPVK_VSC_TO_VK_EX)
+    return resolved or vk
 
 
 class KeyCaptureButton(AnimatedButton):
     """Botao que captura QUALQUER tecla do teclado: clica, aperta a tecla
     desejada, pronto. Usa o codigo virtual nativo do Windows (o mesmo que
-    o hook global usa), entao qualquer tecla que o Windows reconhece serve."""
+    o hook global usa), entao qualquer tecla que o Windows reconhece serve
+    -- inclusive a que ja e o atalho atual (o painel pausa o atalho global
+    enquanto escuta, via listening_changed)."""
+
+    captured = Signal(int)
+    listening_changed = Signal(bool)
 
     def __init__(self, vk_code, parent=None):
         super().__init__("", parent)
@@ -278,36 +312,55 @@ class KeyCaptureButton(AnimatedButton):
         self.setText(vk_to_name(self.vk_code))
 
     def _start_listening(self):
+        if self._listening:
+            return
         self._listening = True
+        self.listening_changed.emit(True)
         self.setText("Pressione uma tecla...")
         self.setFocus()
         self.grabKeyboard()
+
+    def cancel_listening(self):
+        self._stop_listening()
+
+    def _stop_listening(self):
+        if not self._listening:
+            return
+        self._listening = False
+        self.releaseKeyboard()
+        self._refresh_text()
+        self.listening_changed.emit(False)
 
     def keyPressEvent(self, event):
         if not self._listening:
             super().keyPressEvent(event)
             return
-        native_vk = event.nativeVirtualKey()
+        event.accept()
+        if event.isAutoRepeat():
+            return
+        native_vk = _resolve_side_specific_vk(event.nativeVirtualKey(), event.nativeScanCode())
         if native_vk:
             self.vk_code = native_vk
-        self._listening = False
-        self.releaseKeyboard()
-        self._refresh_text()
-        event.accept()
+            # captured ANTES de listening_changed(False): quem troca o
+            # atalho precisa ja estar com a tecla nova quando decidir
+            # quando reativar o atalho
+            self.captured.emit(native_vk)
+        self._stop_listening()
 
     def focusOutEvent(self, event):
-        if self._listening:
-            self._listening = False
-            self.releaseKeyboard()
-            self._refresh_text()
+        self._stop_listening()
         super().focusOutEvent(event)
+
+    def hideEvent(self, event):
+        self._stop_listening()
+        super().hideEvent(event)
 
 
 class _TitleBar(QWidget):
     """Barra de titulo customizada (logo + nome, arrastar a janela,
     botao de fechar), pra nao depender da moldura nativa do Windows."""
 
-    def __init__(self, title, parent=None):
+    def __init__(self, title, parent=None, on_help=None):
         super().__init__(parent)
         self.setObjectName("titleBar")
         self._drag_offset = None
@@ -336,6 +389,16 @@ class _TitleBar(QWidget):
         layout.addWidget(icon_label)
         layout.addWidget(text_label)
         layout.addStretch()
+        self.help_btn = None
+        if on_help is not None:
+            help_btn = QPushButton("?")
+            self.help_btn = help_btn
+            help_btn.setObjectName("helpButton")
+            help_btn.setFixedSize(26, 26)
+            help_btn.setCursor(Qt.PointingHandCursor)
+            help_btn.setToolTip("Ver o passo a passo")
+            help_btn.clicked.connect(on_help)
+            layout.addWidget(help_btn)
         layout.addWidget(close_btn)
 
     def mousePressEvent(self, event):
@@ -440,7 +503,7 @@ class UpdateDialog(QDialog):
 
     def __init__(self, current_version, new_version, notes, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Quase Nada Voz - atualização")
+        self.setWindowTitle(f"{paths.APP_NAME} - atualização")
         self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -509,6 +572,14 @@ class UpdateDialog(QDialog):
         self.update_btn.setText("Baixando...")
         self.status_label.setText("Baixando atualização...")
 
+    def set_progress(self, percent):
+        self.update_btn.setText(f"Baixando {percent}%")
+        self.status_label.setText(f"Baixando atualização... {percent}%")
+
+    def set_restarting(self):
+        self.update_btn.setText("Reiniciando...")
+        self.status_label.setText("Pronto! O app vai fechar e abrir de novo em alguns segundos.")
+
     def set_error(self, message):
         self.later_btn.setEnabled(True)
         self.update_btn.setEnabled(True)
@@ -517,12 +588,16 @@ class UpdateDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
-    """Painel pra configurar credenciais, hotkey e microfone. Aplica na
-    hora (sem precisar reiniciar o app) via os callbacks passados."""
+    """Painel pra configurar credenciais, hotkey e microfone. Tudo salva e
+    aplica NA HORA, sem botao de salvar: escolheu a tecla, trocou o
+    microfone, marcou o checkbox -- ja vale. Email/senha salvam quando
+    sai do campo (ou fecha o painel), pra nao gravar a cada letra."""
 
-    def __init__(self, on_hotkey_changed=None, on_device_changed=None, anchor_rect=None, parent=None):
+    def __init__(self, on_hotkey_changed=None, on_device_changed=None, on_hotkey_capture=None,
+                 anchor_rect=None, session=None, parent=None):
         super().__init__(parent)
         self._anchor_rect = anchor_rect
+        self._session = session
         self._geo_anim = None
         # windowTitle e windowIcon ficam so pro Windows (alt-tab, preview
         # ao passar o mouse na bandeja) -- a barra de titulo visivel e a
@@ -531,7 +606,7 @@ class SettingsDialog(QDialog):
         # ali pela bandeja (system tray), nunca como um item separado na
         # taskbar (isso confundia: aparecia generico como "Python", com
         # jump list padrao do Windows sem nada a ver com o app).
-        self.setWindowTitle("Quase Nada Voz")
+        self.setWindowTitle(paths.APP_NAME)
         self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -539,6 +614,7 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(420)
         self._on_hotkey_changed = on_hotkey_changed
         self._on_device_changed = on_device_changed
+        self._on_hotkey_capture = on_hotkey_capture
         self._login_thread = None
 
         self._fade_anim = QPropertyAnimation(self, b"windowOpacity", self)
@@ -577,6 +653,17 @@ class SettingsDialog(QDialog):
         self.email_edit = AnimatedLineEdit(self._values["OPENAI_EMAIL"])
         self.password_edit = AnimatedLineEdit(self._values["OPENAI_PASSWORD"])
         self.password_edit.setEchoMode(QLineEdit.Password)
+        self._password_action = self.password_edit.addAction(
+            self._eye_icon(0.0), QLineEdit.TrailingPosition)
+        self._password_action.setToolTip("Mostrar senha")
+        self._password_action.triggered.connect(self._toggle_password)
+        self._password_revealed = False
+        self._password_progress = 0.0
+        self._password_target = 0.0
+        self._password_real = self._values["OPENAI_PASSWORD"]
+        self._password_timer = QTimer(self)
+        self._password_timer.setInterval(PASSWORD_TICK_MS)
+        self._password_timer.timeout.connect(self._tick_password)
 
         self.browser_combo = AnimatedComboBox()
         self.browser_combo.addItem("Automático (Chrome ou Edge)", "")
@@ -589,7 +676,7 @@ class SettingsDialog(QDialog):
 
         self.status_label = QLabel("")
         self.status_label.setObjectName("statusLabel")
-        self.test_login_btn = AnimatedButton("Testar login agora")
+        self.test_login_btn = AnimatedButton("Fazer login agora")
         self.test_login_btn.clicked.connect(self._test_login)
 
         guide_label = QLabel(GUIDE_TEXT)
@@ -599,6 +686,8 @@ class SettingsDialog(QDialog):
         account_form = QFormLayout()
         account_form.setContentsMargins(4, 16, 4, 8)
         account_form.setSpacing(12)
+        self._session_row = self._build_session_row()
+        account_form.addRow("Sessão:", self._session_row)
         account_form.addRow("Email do ChatGPT:", self.email_edit)
         account_form.addRow("Senha:", self.password_edit)
         account_form.addRow("Navegador:", self.browser_combo)
@@ -613,42 +702,58 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(general_tab, "Configurações")
         tabs.addTab(account_tab, "Conta")
-        tabs.addTab(self._build_history_tab(), "Histórico")
+        self._history_tab = self._build_history_tab()
+        tabs.addTab(self._history_tab, "Histórico")
+        tabs.addTab(self._build_tutorial_tab(), "Tutorial")
         tabs.currentChanged.connect(self._animate_tab_change)
         self.tabs = tabs
 
-        cancel_btn = AnimatedButton("Cancelar")
-        cancel_btn.clicked.connect(self.reject)
-        save_btn = AnimatedButton("Salvar", primary=True)
-        save_btn.clicked.connect(self._save)
+        self._tour = None
 
-        buttons_row = QHBoxLayout()
-        buttons_row.addStretch()
-        buttons_row.addWidget(cancel_btn)
-        buttons_row.addWidget(save_btn)
+        self._saved_label = QLabel(self.AUTOSAVE_HINT)
+        self._saved_label.setObjectName("autosaveLabel")
+        self._saved_timer = QTimer(self)
+        self._saved_timer.setSingleShot(True)
+        self._saved_timer.timeout.connect(self._reset_saved_label)
 
-        version_label = QLabel(f"v{version.APP_VERSION}")
+        version_label = QLabel(f"v{version.APP_VERSION}" + (" · dev" if paths.IS_DEV else ""))
         version_label.setObjectName("versionLabel")
-        version_label.setAlignment(Qt.AlignCenter)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(4, 6, 4, 0)
+        footer.addWidget(self._saved_label)
+        footer.addStretch()
+        footer.addWidget(version_label)
 
         content = QVBoxLayout()
-        content.setContentsMargins(20, 0, 20, 18)
+        content.setContentsMargins(20, 0, 20, 14)
         content.addWidget(tabs)
-        content.addLayout(buttons_row)
-        content.addWidget(version_label)
+        content.addLayout(footer)
 
         panel = QWidget()
         panel.setObjectName("panel")
         panel.setAttribute(Qt.WA_StyledBackground, True)
+        self._panel = panel
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.setSpacing(4)
-        panel_layout.addWidget(_TitleBar("Quase Nada Voz"))
+        self._title_bar = _TitleBar(paths.APP_NAME, on_help=self.start_tour)
+        panel_layout.addWidget(self._title_bar)
         panel_layout.addLayout(content)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(panel)
+
+        # conectado so agora: preencher os valores iniciais acima nao pode
+        # contar como "o usuario mudou"
+        self.hotkey_button.captured.connect(self._on_hotkey_captured)
+        self.hotkey_button.listening_changed.connect(self._on_hotkey_listening)
+        self.device_combo.currentIndexChanged.connect(self._on_device_selected)
+        self.autostart_check.toggled.connect(self._on_autostart_toggled)
+        self.browser_combo.currentIndexChanged.connect(self._on_browser_selected)
+        self.email_edit.editingFinished.connect(self._commit_credentials)
+        self.password_edit.editingFinished.connect(self._commit_credentials)
 
     def _build_history_tab(self):
         """Ultimas transcricoes salvas. Serve principalmente pra quando a
@@ -674,15 +779,17 @@ class SettingsDialog(QDialog):
         self._history_hint.setObjectName("historyHint")
 
         refresh_btn = QPushButton("Atualizar")
+        self._history_refresh_btn = refresh_btn
         refresh_btn.setObjectName("historyRefreshButton")
         refresh_btn.setCursor(Qt.PointingHandCursor)
+        refresh_btn.setFocusPolicy(Qt.NoFocus)
         refresh_btn.setFixedWidth(80)
         refresh_btn.clicked.connect(self._refresh_history)
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.addWidget(self._history_hint, 1)
-        header.addWidget(refresh_btn)
+        header.addWidget(refresh_btn, 0, Qt.AlignRight)
 
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -699,6 +806,179 @@ class SettingsDialog(QDialog):
         self._history_timer = QTimer(self)
         self._history_timer.timeout.connect(self._refresh_history)
         self._history_timer.start(1500)
+        return tab
+
+    def refresh_history(self):
+        """Chamado pelo app assim que uma transcricao entra no historico
+        -- aparece na hora, sem esperar o timer de seguranca."""
+        self._refresh_history()
+
+    _SESSION_DOT_COLORS = {
+        session_mod.OK: "#22C55E",
+        session_mod.EXPIRED: "#EF4444",
+        session_mod.NO_CREDENTIALS: "#EF4444",
+        session_mod.OFFLINE: "#F59E0B",
+    }
+
+    def _build_session_row(self):
+        self._session_dot = QLabel("●")
+        self._session_dot.setObjectName("sessionDot")
+        self._session_text = QLabel()
+        self._session_text.setObjectName("sessionText")
+        self._session_text.setWordWrap(True)
+        self._session_check_btn = QPushButton("Verificar agora")
+        self._session_check_btn.setObjectName("historyRefreshButton")
+        self._session_check_btn.setCursor(Qt.PointingHandCursor)
+        # sem foco de teclado: desabilitar ele durante a checagem estava
+        # empurrando o foco pro campo de email
+        self._session_check_btn.setFocusPolicy(Qt.NoFocus)
+        self._session_check_btn.clicked.connect(self._check_session)
+
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addWidget(self._session_dot)
+        layout.addWidget(self._session_text, 1)
+        layout.addWidget(self._session_check_btn)
+
+        if self._session is not None:
+            self._session.status_changed.connect(self._show_session_status)
+            self._session.check_started.connect(self._show_session_checking)
+            if self._session.checking:
+                self._show_session_checking()
+            else:
+                self._show_session_status(self._session.status)
+        else:
+            self._show_session_status(session_mod.UNKNOWN)
+        return row
+
+    def _show_session_checking(self):
+        self._session_dot.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 14px;")
+        self._session_text.setText("Verificando sessão...")
+        self._session_check_btn.setEnabled(False)
+
+    def _show_session_status(self, status):
+        color = self._SESSION_DOT_COLORS.get(status, theme.TEXT_MUTED)
+        self._session_dot.setStyleSheet(f"color: {color}; font-size: 14px;")
+        text = session_mod.MESSAGES.get(status, status)
+        if status == session_mod.EXPIRED:
+            text += " — faça login"
+        self._session_text.setText(text)
+        self._session_check_btn.setEnabled(True)
+
+    def _check_session(self):
+        if self._session is not None:
+            self._session.check()
+
+    _TAB_INDEX = {"general": 0, "account": 1, "history": 2, "tutorial": 3}
+
+    def show_tab(self, name):
+        if name == "history":
+            self._refresh_history()
+        self.tabs.setCurrentIndex(self._TAB_INDEX[name])
+
+    def show_account_tab(self):
+        self.show_tab("account")
+
+    def show_history_tab(self):
+        self.show_tab("history")
+
+    # --- passo a passo ---------------------------------------------------
+
+    def tour_targets(self):
+        return {
+            "email": self.email_edit,
+            "password": self.password_edit,
+            "browser": self.browser_combo,
+            "session": self._session_row,
+            "login": self.test_login_btn,
+            "hotkey": self.hotkey_button,
+            "microphone": self.device_combo,
+            "autostart": self.autostart_check,
+            "history": self._history_focus_widgets(),
+            "help": self._title_bar.help_btn,
+        }
+
+    def _history_focus_widgets(self):
+        # a aba inteira e alta demais pra destacar (o cartao nao cabia):
+        # so o botao Atualizar e o primeiro item (ou o aviso de vazio)
+        widgets = [self._history_refresh_btn]
+        for i in range(self._history_layout.count()):
+            w = self._history_layout.itemAt(i).widget()
+            if w is not None:
+                widgets.append(w)
+                break
+        return widgets
+
+    def start_tour(self):
+        import tour
+        if self._tour is not None:
+            return
+        self._tour = tour.TourOverlay(self._panel, self)
+        self._tour.finished.connect(self._on_tour_finished)
+        self._tour.start()
+
+    def _on_tour_finished(self, completed):
+        self._tour = None
+        # concluido OU pulado: nao abre sozinho de novo (fica no botao ?)
+        config.save_config({"TOUR_DONE": "1"})
+        if completed:
+            self.show_tab("general")
+
+    def _build_tutorial_tab(self):
+        import tour
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(0, 0, 6, 0)
+        inner_layout.setSpacing(8)
+
+        for number, step in enumerate(tour.STEPS, start=1):
+            card = QWidget()
+            card.setObjectName("tutorialItem")
+            card.setAttribute(Qt.WA_StyledBackground, True)
+            badge = QLabel(str(number))
+            badge.setObjectName("tutorialBadge")
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setFixedSize(24, 24)
+            title = QLabel(step.title)
+            title.setObjectName("tutorialTitle")
+            text = QLabel(step.text)
+            text.setObjectName("tutorialText")
+            text.setWordWrap(True)
+            texts = QVBoxLayout()
+            texts.setSpacing(2)
+            texts.addWidget(title)
+            texts.addWidget(text)
+            row = QHBoxLayout(card)
+            row.setContentsMargins(10, 10, 10, 10)
+            row.setSpacing(10)
+            row.addWidget(badge, 0, Qt.AlignTop)
+            row.addLayout(texts, 1)
+            inner_layout.addWidget(card)
+        inner_layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidget(inner)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setMaximumHeight(300)
+
+        start_btn = AnimatedButton("Ver passo a passo", primary=True)
+        start_btn.clicked.connect(self.start_tour)
+        header = QHBoxLayout()
+        hint = QLabel("Como usar e configurar o app.")
+        hint.setObjectName("historyHint")
+        header.addWidget(hint, 1)
+        header.addWidget(start_btn)
+
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(4, 16, 4, 8)
+        layout.setSpacing(10)
+        layout.addLayout(header)
+        layout.addWidget(scroll)
         return tab
 
     def _refresh_history(self):
@@ -767,10 +1047,7 @@ class SettingsDialog(QDialog):
             self._anchor_rect = None
 
     def _test_login(self):
-        config.save_config({
-            "OPENAI_EMAIL": self.email_edit.text().strip(),
-            "OPENAI_PASSWORD": self.password_edit.text(),
-        })
+        self._commit_credentials()
         self.test_login_btn.setEnabled(False)
         self.status_label.setText("Testando login (pode abrir o Chrome)...")
         self._login_thread = _LoginTestThread()
@@ -781,36 +1058,179 @@ class SettingsDialog(QDialog):
     def _on_login_ok(self):
         self.test_login_btn.setEnabled(True)
         self.status_label.setText("Login OK, sessão renovada.")
+        self._check_session()
 
     def _on_login_error(self, message):
         self.test_login_btn.setEnabled(True)
+        self._check_session()
         self.status_label.setText("Falhou — veja login_debug.png se existir.")
         QMessageBox.warning(self, "Erro no login", message)
 
-    def _save(self):
-        old_email = self._values["OPENAI_EMAIL"]
-        old_hotkey_vk = parse_hotkey(self._values["HOTKEY"])
-        new_email = self.email_edit.text().strip()
-        new_hotkey_vk = self.hotkey_button.vk_code
-        new_device = self.device_combo.currentData()
+    # --- salvamento automatico ------------------------------------------
 
-        config.save_config({
-            "OPENAI_EMAIL": new_email,
-            "OPENAI_PASSWORD": self.password_edit.text(),
-            "HOTKEY": str(new_hotkey_vk),
-            "AUDIO_DEVICE": new_device,
-            "BROWSER_CHANNEL": self.browser_combo.currentData(),
-        })
+    AUTOSAVE_HINT = "As alterações são salvas automaticamente"
 
-        if new_email != old_email:
-            for f in (auth.COOKIE_FILE, auth.TOKEN_CACHE_FILE):
-                Path(f).unlink(missing_ok=True)
+    def _flash_saved(self):
+        self._saved_label.setText("✓ Salvo")
+        self._set_saved_style(True)
+        self._saved_timer.start(1600)
 
-        if new_hotkey_vk != old_hotkey_vk and self._on_hotkey_changed:
-            self._on_hotkey_changed(new_hotkey_vk)
-        if new_device != self._values["AUDIO_DEVICE"] and self._on_device_changed:
-            self._on_device_changed(new_device)
+    def _reset_saved_label(self):
+        self._saved_label.setText(self.AUTOSAVE_HINT)
+        self._set_saved_style(False)
 
-        autostart.set_enabled(self.autostart_check.isChecked())
+    def _set_saved_style(self, saved):
+        self._saved_label.setProperty("saved", saved)
+        self._saved_label.style().unpolish(self._saved_label)
+        self._saved_label.style().polish(self._saved_label)
 
-        self.accept()
+    def _on_hotkey_listening(self, listening):
+        if self._on_hotkey_capture:
+            self._on_hotkey_capture(listening)
+
+    def _on_hotkey_captured(self, vk):
+        if vk == parse_hotkey(self._values["HOTKEY"]):
+            return  # escolheu a mesma tecla de novo
+        config.save_config({"HOTKEY": str(vk)})
+        self._values["HOTKEY"] = str(vk)
+        if self._on_hotkey_changed:
+            self._on_hotkey_changed(vk)
+        self._flash_saved()
+
+    def _on_device_selected(self, _index):
+        device = self.device_combo.currentData()
+        if device == self._values["AUDIO_DEVICE"]:
+            return
+        config.save_config({"AUDIO_DEVICE": device})
+        self._values["AUDIO_DEVICE"] = device
+        if self._on_device_changed:
+            self._on_device_changed(device)
+        self._flash_saved()
+
+    def _on_autostart_toggled(self, checked):
+        autostart.set_enabled(checked)
+        self._flash_saved()
+
+    def _on_browser_selected(self, _index):
+        channel = self.browser_combo.currentData()
+        if channel == self._values["BROWSER_CHANNEL"]:
+            return
+        config.save_config({"BROWSER_CHANNEL": channel})
+        self._values["BROWSER_CHANNEL"] = channel
+        self._flash_saved()
+
+    # --- senha: revela/esconde com animacao ------------------------------
+
+    def _eye_icon(self, fraction):
+        """Olho com o risco crescendo junto com a animacao (em vez de
+        trocar de imagem de um quadro pro outro)."""
+        pixmap = QPixmap(str(EYE_ICON))
+        if fraction > 0.01:
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            w = pixmap.width()
+            x0, y0, x1, y1 = w * 0.17, w * 0.83, w * 0.83, w * 0.17
+            ex = x0 + (x1 - x0) * fraction
+            ey = y0 + (y1 - y0) * fraction
+            for color, width in ((QColor(theme.BG_INPUT), w * 0.17), (QColor(theme.TEXT_MUTED), w * 0.09)):
+                pen = QPen(color)
+                pen.setWidthF(width)
+                pen.setCapStyle(Qt.RoundCap)
+                painter.setPen(pen)
+                painter.drawLine(QPointF(x0, y0), QPointF(ex, ey))
+            painter.end()
+        return QIcon(pixmap)
+
+    def _password_text(self):
+        """Senha de verdade -- durante a animacao o campo mostra caracteres
+        embaralhados/bolinhas, que nao podem ser salvos."""
+        if self._password_timer.isActive():
+            return self._password_real
+        return self.password_edit.text()
+
+    def _toggle_password(self):
+        self._password_real = self._password_text()
+        self._password_revealed = not self._password_revealed
+        self._password_target = 1.0 if self._password_revealed else 0.0
+        self._password_action.setToolTip("Esconder senha" if self._password_revealed else "Mostrar senha")
+        if not self._password_real:
+            self._finish_password()
+            return
+        # o campo nao pode ser editado enquanto mostra o embaralhado
+        self.password_edit.setReadOnly(True)
+        self.password_edit.setEchoMode(QLineEdit.Normal)
+        # ja desenha o primeiro quadro: trocar o echoMode sem isso mostrava a
+        # senha inteira por um instante antes do embaralhado comecar
+        self._render_password_frame()
+        self._password_timer.start()
+
+    def _render_password_frame(self):
+        real = self._password_real
+        if self._password_revealed:
+            # revelando: parte de tras ainda embaralhada, parte da frente ja
+            # legivel -- da a sensacao de estar decifrando
+            shown = round(len(real) * self._password_progress)
+            rest = "".join(random.choice(PASSWORD_SCRAMBLE) for _ in range(len(real) - shown))
+            self.password_edit.setText(real[:shown] + rest)
+        else:
+            # escondendo: as letras viram bolinha, da esquerda pra direita.
+            # Embaralhar na volta ficava estranho (a senha virava lixo antes de
+            # sumir), entao aqui e so a troca mesmo
+            hidden = round(len(real) * (1.0 - self._password_progress))
+            self.password_edit.setText(PASSWORD_BULLET * hidden + real[hidden:])
+        self._password_action.setIcon(self._eye_icon(self._password_progress))
+
+    def _tick_password(self):
+        step = PASSWORD_TICK_MS / (PASSWORD_ANIM_MS if self._password_revealed else PASSWORD_HIDE_MS)
+        if self._password_target > self._password_progress:
+            self._password_progress = min(1.0, self._password_progress + step)
+        else:
+            self._password_progress = max(0.0, self._password_progress - step)
+
+        self._render_password_frame()
+
+        if self._password_progress in (0.0, 1.0):
+            self._finish_password()
+
+    def _finish_password(self):
+        self._password_timer.stop()
+        self._password_progress = 1.0 if self._password_revealed else 0.0
+        self.password_edit.setReadOnly(False)
+        self.password_edit.setEchoMode(QLineEdit.Normal if self._password_revealed else QLineEdit.Password)
+        if self.password_edit.text() != self._password_real:
+            self.password_edit.setText(self._password_real)
+        self._password_action.setIcon(self._eye_icon(self._password_progress))
+
+    def _commit_credentials(self):
+        email = self.email_edit.text().strip()
+        password = self._password_text()
+        if email == self._values["OPENAI_EMAIL"] and password == self._values["OPENAI_PASSWORD"]:
+            return
+        if email != self._values["OPENAI_EMAIL"]:
+            auth.remember_session_email(self._values["OPENAI_EMAIL"])
+        config.save_config({"OPENAI_EMAIL": email, "OPENAI_PASSWORD": password})
+        self._values["OPENAI_EMAIL"] = email
+        self._values["OPENAI_PASSWORD"] = password
+        self._flash_saved()
+        self._check_session()
+
+    def done(self, result):
+        # fechou no meio da animacao da senha: volta o texto de verdade antes
+        if self._password_timer.isActive():
+            self._finish_password()
+        # fechou com o cursor ainda no campo de email/senha: nao perde o
+        # que foi digitado
+        self._commit_credentials()
+        super().done(result)
+
+    def mousePressEvent(self, event):
+        # clicou pra trocar a tecla e depois num espaco vazio do painel (que
+        # nao tira o foco de ninguem): desiste da escolha, senao o atalho
+        # global ficava pausado esperando uma tecla
+        self.hotkey_button.cancel_listening()
+        # clicar fora de um campo de texto tira o foco dele (e com isso
+        # salva, ja que salvar acontece ao sair do campo)
+        focused = QApplication.focusWidget()
+        if isinstance(focused, QLineEdit):
+            focused.clearFocus()
+        super().mousePressEvent(event)

@@ -182,6 +182,108 @@ QTabBar::tab:hover {{
     font-size: 10px;
     padding-top: 8px;
 }}
+#autosaveLabel {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+}}
+#autosaveLabel[saved="true"] {{
+    color: {TURQUOISE};
+    font-weight: 600;
+}}
+#helpButton {{
+    background-color: transparent;
+    border: 1px solid {BORDER};
+    border-radius: 13px;
+    color: {TEXT_MUTED};
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0;
+}}
+#helpButton:hover {{
+    border: 1px solid {TURQUOISE};
+    color: {TURQUOISE};
+}}
+#tourCard {{
+    background-color: {BG_PANEL};
+    border: 1px solid {TURQUOISE};
+    border-radius: 12px;
+}}
+#tourStep {{
+    color: {TURQUOISE};
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}}
+#tourTitle {{
+    color: {TEXT};
+    font-size: 15px;
+    font-weight: 600;
+}}
+#tourText {{
+    color: {TEXT_MUTED};
+    font-size: 12px;
+}}
+#tourDots {{
+    font-size: 9px;
+    padding-top: 2px;
+}}
+#tourSkip {{
+    background-color: transparent;
+    border: none;
+    color: {TEXT_MUTED};
+    font-size: 12px;
+    padding: 6px 2px;
+}}
+#tourSkip:hover {{
+    color: {TEXT};
+}}
+#tutorialItem {{
+    background-color: {BG_INPUT};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+#tutorialBadge {{
+    background-color: {TURQUOISE};
+    color: #0a0a0a;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+}}
+#tutorialTitle {{
+    color: {TEXT};
+    font-size: 13px;
+    font-weight: 600;
+}}
+#tutorialText {{
+    color: {TEXT_MUTED};
+    font-size: 12px;
+}}
+#noticePanel {{
+    background-color: {BG_PANEL};
+    border: 1px solid {BORDER};
+    border-radius: 12px;
+}}
+#noticeTitle {{
+    color: {TEXT};
+    font-size: 13px;
+    font-weight: 600;
+}}
+#noticePreview {{
+    color: {TEXT_MUTED};
+    font-size: 12px;
+}}
+#noticeClose {{
+    background-color: transparent;
+    border: none;
+    border-radius: 11px;
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    padding: 0;
+}}
+#noticeClose:hover {{
+    background-color: #e5484d;
+    color: white;
+}}
 #historyHint {{
     color: {TEXT_MUTED};
     font-size: 11px;

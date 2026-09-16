@@ -11,6 +11,7 @@ DEFAULTS = {
     "HOTKEY": "F9",
     "AUDIO_DEVICE": "",
     "BROWSER_CHANNEL": "",
+    "TOUR_DONE": "",
     "WIDGET_X": "",
     "WIDGET_Y": "",
 }

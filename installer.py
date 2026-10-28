@@ -149,6 +149,11 @@ def install():
 
     INSTALL_DIR.mkdir(parents=True, exist_ok=True)
     if not running_from_install_dir():
+        # o Windows nao deixa sobrescrever um .exe em execucao. Se ja tem
+        # instalacao aberta (reinstalar por --install), pede pra ela
+        # fechar antes de trocar o arquivo.
+        if INSTALLED_EXE.exists():
+            request_quit()
         shutil.copy2(Path(sys.executable), INSTALLED_EXE)
 
     _write_registry(INSTALLED_EXE)
@@ -294,9 +299,12 @@ def _instance_pids():
         nossos.add(pid)
         pid = tabela.get(pid, ("", 0))[1]
 
-    alvo = Path(sys.executable).name.lower()
+    # os dois nomes: o deste .exe e o do instalado. Rodando de uma copia
+    # baixada com outro nome ("QuaseNadaVoz (1).exe"), so o nome proprio
+    # nao acharia a instalacao aberta.
+    nomes = {Path(sys.executable).name.lower(), INSTALLED_EXE.name.lower()}
     return [p for p, (nome, _pai) in tabela.items()
-            if nome.lower() == alvo and p not in nossos]
+            if nome.lower() in nomes and p not in nossos]
 
 
 def request_quit(timeout_s=10.0):

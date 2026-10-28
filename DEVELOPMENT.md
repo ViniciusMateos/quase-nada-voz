@@ -116,6 +116,39 @@ A UIA roda numa thread com timeout de 1,5s (app travado do outro lado não segur
 
 O checkbox no painel escreve/remove um valor em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (`autostart.py`) — não precisa de admin, não usa atalho na pasta Startup.
 
+O valor guarda o caminho do `.exe` de onde a opção foi ligada. Por isso `installer.install()` reescreve esse valor apontando pro `.exe` instalado: senão o Windows continuaria abrindo a cópia solta de onde você rodou — que não é o programa que está na lista.
+
+## Instalação (lista de programas do Windows)
+
+`installer.py`. É instalação **por usuário**: copia o `.exe` pra `%LOCALAPPDATA%\Programs\<APP_ID>` e registra em `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<APP_ID>` (`DisplayName`, `DisplayVersion`, `Publisher`, `DisplayIcon`, `UninstallString`, `EstimatedSize`, `NoModify`/`NoRepair`). Sem admin, sem MSI, sem Inno Setup — e, justamente por ser HKCU, não afeta os outros usuários da máquina.
+
+Como o Dev tem `APP_ID` próprio (`paths.py`), ele aparece como outro programa na lista e desinstala separado, sem encostar no app de verdade.
+
+Caminhos de entrada (`app.py`):
+
+| Comando | O que faz |
+|---|---|
+| (nenhum) | primeira vez rodando solto, oferece instalar; recusou, grava `INSTALL_DECLINED` e não pergunta mais |
+| `--install [--quiet]` | instala e passa a bola pro `.exe` instalado |
+| `--uninstall [--quiet]` | o que a lista de programas do Windows chama (`UninstallString`) |
+
+Três detalhes que não são óbvios:
+
+- **O `.exe` não consegue se apagar rodando.** A pasta da instalação é removida por um `.bat` solto no `%TEMP%` que tenta `rmdir` em loop até o processo morrer, e no fim apaga a si mesmo (`_schedule_self_delete`).
+- **Desinstalar com o app aberto pede pra ele fechar direito**, sinalizando um evento nomeado do Windows (`QUIT_EVENT_NAME`) que o app espera numa thread (`_watch_quit_request`). `taskkill /F` é só o plano B: matando o processo, a pasta temporária do PyInstaller (centenas de MB) ficaria órfã no `%TEMP%`.
+- **Não dá pra matar por nome de imagem.** No `.exe` onefile, o bootloader do PyInstaller é um processo *pai* com o mesmo nome do app — o `taskkill /IM` derrubaria o nosso também, no meio do desinstalar. Por isso `_instance_pids()` monta a árvore de processos (Toolhelp32) e exclui a própria linhagem.
+
+## Janelas que não minimizam
+
+A bolinha e o aviso preso nela (`overlay.py`, `notice.py`) usam o `NoMinimizeMixin` (`nominimize.py`). Elas não têm botão de minimizar, não aparecem na barra de tarefas e o app não tem pra onde "voltar" se sumirem — mas `Win+D` e o "minimizar tudo" não fazem essa distinção: mandam minimizar em toda janela de primeiro nível. A bolinha ia junto, e isso parecia o app morrendo sozinho.
+
+Os dois caminhos do Windows são tratados:
+
+- `WM_SYSCOMMAND`/`SC_MINIMIZE` (menu da janela, atalhos): engolido no `nativeEvent`, nem começa a minimizar.
+- `ShowWindow(SW_MINIMIZE)` direto, que é o que o shell usa no `Win+D`: não dá pra vetar — chega como `WM_SIZE`/`SIZE_MINIMIZED` com o estrago feito, e aí desfaz no próximo giro do loop de eventos (desfazer dentro do próprio handler não funciona: o Windows ainda está no meio da troca de estado).
+
+Volta sempre com `SW_SHOWNOACTIVATE`, nunca `SW_RESTORE`/`show()`: restaurar normal roubaria o foco de onde você está digitando.
+
 ## Observações técnicas
 
 - Usa o endpoint interno `chatgpt.com/backend-api/transcribe` (não oficial/documentado) — pode mudar ou parar de funcionar sem aviso.

@@ -5,7 +5,7 @@ Ditado por voz: aperte uma tecla, fale, solte — o texto é transcrito e colado
 ## Como usar
 
 1. Baixe o `QuaseNadaVoz.exe` na [última versão](https://github.com/ViniciusMateos/quase-nada-voz/releases/latest) (em "Assets").
-2. Dê duplo clique. Não precisa instalar nada — só ter o Google Chrome ou o Microsoft Edge (que já vem com o Windows).
+2. Dê duplo clique. Ele pergunta se você quer instalar no computador — aceitando, vira um programa de verdade (aparece na lista de programas do Windows, com atalho no Menu Iniciar). Recusando, roda solto do mesmo jeito. De resto não precisa de nada além do Google Chrome ou do Microsoft Edge (que já vem com o Windows).
 3. Clique na bolinha que aparece na tela (ou no ícone perto do relógio — pode estar escondido nos "ícones ocultos" na primeira vez) e coloque seu email/senha do ChatGPT nas Configurações.
 4. Pronto — segure **F9** pra ditar (dá pra trocar a tecla no painel).
 
@@ -24,6 +24,10 @@ No painel de Configurações (clique na bolinha ou no ícone da bandeja) dá pra
 Na primeira vez que você abre o painel ele te leva por um passo a passo rápido explicando cada parte. Dá pra rever quando quiser na aba **Tutorial**.
 
 O app se atualiza sozinho: quando sair versão nova, ele avisa e atualiza com um clique — sai do ar por alguns segundos e volta contando de qual versão pra qual foi.
+
+**Instalar e desinstalar:** instalado, ele aparece em *Configurações do Windows > Aplicativos > Aplicativos instalados* como "Quase Nada Voz", e dá pra desinstalar por lá. Ou, sem sair do app, em **Configurações > Desinstalar o app** — aí você escolhe se apaga também seu login, histórico e configurações (sem marcar, reinstalar volta com tudo como estava). Quem recusou instalar na primeira vez tem um botão **Instalar neste computador** no mesmo lugar.
+
+**A bolinha não minimiza:** `Win+D` ("mostrar área de trabalho") e o "minimizar tudo" do Windows mandam minimizar em toda janela aberta, e a bolinha ia junto — ela desaparecia da tela e parecia que o app tinha morrido sozinho. Agora ela ignora os dois.
 
 **Sobre a senha:** fica salva localmente sem criptografia (é o jeito mais simples de automatizar o login) — qualquer processo com acesso ao seu usuário Windows consegue ler. E como isso usa os endpoints internos do site da OpenAI (não é API oficial), pode violar os termos de uso deles e pode quebrar se a OpenAI mudar o login.
 

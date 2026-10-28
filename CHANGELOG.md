@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0] — 2026-10-28
+
+### Adicionado
+- feat: o app virou programa de verdade no Windows — aparece em "Aplicativos instalados" com nome, ícone e versão, ganha atalho no Menu Iniciar e desinstala por lá, pelo botão em **Configurações > Desinstalar o app** (que deixa você escolher se apaga ou preserva login, histórico e configurações) ou por `--uninstall --quiet`. Instalação por usuário, sem admin e sem instalador separado; quem recusar a oferta na primeira vez tem um botão "Instalar neste computador" no painel. Instalar também repõe o "iniciar com o Windows" apontando pro app instalado, em vez de seguir abrindo a cópia solta de onde a opção foi ligada
+
+### Corrigido
+- fix: a bolinha — e o avisinho preso nela — desapareciam no `Win+D` e no "minimizar tudo", que mandam minimizar em toda janela aberta. Era isso que fazia o app parecer que morria sozinho do nada: agora ela ignora os dois, e volta sem roubar o foco de onde você está digitando
+
 ## [1.2.0] — 2026-09-16
 
 ### Adicionado

@@ -4,6 +4,8 @@ from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from nominimize import NoMinimizeMixin
+
 from settings_dialog import AnimatedButton, _disable_dwm_transitions
 
 NOTICE_WIDTH = 300
@@ -16,7 +18,7 @@ _HWND_TOPMOST = -1
 _SWP_NOMOVE, _SWP_NOSIZE, _SWP_NOACTIVATE = 0x0002, 0x0001, 0x0010
 
 
-class TranscriptNotice(QWidget):
+class TranscriptNotice(NoMinimizeMixin, QWidget):
     """Balaozinho preso do lado da bolinha flutuante, pra quando a
     transcricao terminou mas o texto nao foi colado (nao tinha campo de
     texto em foco). Nao rouba o foco da janela onde o usuario esta --

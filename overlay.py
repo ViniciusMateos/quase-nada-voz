@@ -6,6 +6,7 @@ from PySide6.QtGui import QPainter, QColor, QPainterPath, QGuiApplication, QPixm
 from PySide6.QtWidgets import QWidget
 
 import paths
+from nominimize import NoMinimizeMixin
 from recorder import N_BANDS
 
 IDLE_SIZE = 36
@@ -123,7 +124,7 @@ def _tinted_pixmap(path, size, color):
     return tinted
 
 
-class FloatingWidget(QWidget):
+class FloatingWidget(NoMinimizeMixin, QWidget):
     """Bolinha pequena e discreta sempre visivel na tela, que o usuario
     arrasta pra onde quiser. Ociosa, mostra a logo clara sobre fundo
     escuro translucido. Passar o mouse expande um pouco (indicando que

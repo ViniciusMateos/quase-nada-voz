@@ -6,10 +6,11 @@ import winsound
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QAction, QGuiApplication, QIcon
-from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QCheckBox, QMenu, QMessageBox, QSystemTrayIcon
 
 import config
 import focus
+import installer
 import paths
 import session as session_mod
 import sound
@@ -60,6 +61,7 @@ class _AppBridge(QObject):
     """A transcricao roda em thread de fundo; emitir por aqui entrega o
     aviso com seguranca na thread do Qt."""
     history_saved = Signal()
+    quit_requested = Signal()
     not_pasted = Signal(str, str)  # texto, titulo do aviso
     auth_failed = Signal()
 
@@ -85,6 +87,8 @@ class VoiceApp:
         self._bridge.history_saved.connect(self._on_history_saved)
         self._bridge.not_pasted.connect(self._notice.show_text)
         self._bridge.auth_failed.connect(self._on_auth_failed)
+        self._bridge.quit_requested.connect(self._quit)
+        self._watch_quit_request()
         self.recorder = Recorder(
             on_bands=self._on_bands, device_name=self.cfg["AUDIO_DEVICE"]
         )
@@ -240,6 +244,8 @@ class VoiceApp:
             on_hotkey_changed=self._apply_hotkey,
             on_device_changed=self._apply_device,
             on_hotkey_capture=self._on_hotkey_capture,
+            on_uninstall=self._uninstall_from_app,
+            on_install=self._install_from_app,
             anchor_rect=self.widget.geometry(),
             session=self.session,
         )
@@ -379,6 +385,65 @@ class VoiceApp:
         self._refresh_tooltip()
         dialog.set_error(message)
 
+    def _watch_quit_request(self):
+        """O desinstalador (que roda como outro processo) sinaliza um
+        evento do Windows em vez de matar o app: assim o Qt fecha
+        direito e o PyInstaller limpa a pasta temporaria dele."""
+        kernel32 = ctypes.windll.kernel32
+        evento = kernel32.CreateEventW(None, True, False, installer.QUIT_EVENT_NAME)
+        if not evento:
+            return
+
+        def esperar():
+            kernel32.WaitForSingleObject(evento, 0xFFFFFFFF)
+            # volta pra thread do Qt antes de mexer em qualquer janela
+            self._bridge.quit_requested.emit()
+
+        threading.Thread(target=esperar, daemon=True).start()
+
+    def _install_from_app(self):
+        """Instalar pelo painel -- caminho de quem recusou a oferta da
+        primeira vez. Depois de copiar, quem assume e o .exe instalado:
+        este fecha pra nao ficar com dois rodando."""
+        try:
+            exe = installer.install()
+            updater.launch(exe)
+        except Exception as e:
+            QMessageBox.critical(self._settings_dialog, paths.APP_NAME,
+                                 "Nao deu pra instalar: {}".format(e))
+            return
+        config.save_config({"INSTALL_DECLINED": ""})
+        if self._settings_dialog is not None:
+            self._settings_dialog.close()
+        self._quit()
+
+    def _uninstall_from_app(self):
+        """Desinstalar sem precisar ir na lista de programas do Windows.
+        Aqui o app ja esta rodando, entao nao precisa fechar instancia
+        nenhuma: limpa tudo e fecha a si mesmo no fim."""
+        remove_data = QCheckBox("Apagar tambem meu login, historico e configuracoes")
+        box = QMessageBox(self._settings_dialog)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(paths.APP_NAME)
+        box.setText("Desinstalar o {} deste computador?".format(paths.APP_NAME))
+        box.setInformativeText(
+            "O app sai da lista de programas, para de abrir com o Windows e fecha agora."
+        )
+        box.setCheckBox(remove_data)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            installer.uninstall(remove_data=remove_data.isChecked())
+        except OSError as e:
+            QMessageBox.critical(self._settings_dialog, paths.APP_NAME,
+                                 "Nao deu pra desinstalar: {}".format(e))
+            return
+        if self._settings_dialog is not None:
+            self._settings_dialog.close()
+        self._quit()
+
     def _quit(self):
         self.hotkey.uninstall()
         self.recorder.close_stream()
@@ -413,7 +478,101 @@ def _acquire_single_instance_lock(wait_s=0.0):
         time.sleep(0.25)
 
 
+def _run_install(argv):
+    """Instalar pela linha de comando (--install, com --quiet opcional).
+    Mesmo caminho da oferta da primeira vez, sem depender de clique --
+    serve pra script e pra testar o ciclo inteiro."""
+    quiet = installer.QUIET_FLAG in argv
+    app = QApplication(argv)
+    app.setStyleSheet(theme.STYLESHEET)
+    app.setWindowIcon(QIcon(ICON_PATH))
+    try:
+        exe = installer.install()
+    except Exception as e:
+        log("Instalacao falhou: {}".format(e))
+        if not quiet:
+            QMessageBox.critical(None, paths.APP_NAME, "Nao deu pra instalar: {}".format(e))
+        sys.exit(1)
+    config.save_config({"INSTALL_DECLINED": ""})
+    if not quiet:
+        QMessageBox.information(None, paths.APP_NAME,
+                                "{} instalado. Ele ja aparece na lista de programas "
+                                "do Windows.".format(paths.APP_NAME))
+    updater.launch(exe)
+
+
+def _run_uninstall(argv):
+    """Caminho que a lista de programas do Windows chama
+    (UninstallString). Roda como processo separado, provavelmente com o
+    app aberto -- por isso fecha a instancia que estiver rodando antes
+    de limpar."""
+    quiet = installer.QUIET_FLAG in argv
+    app = QApplication(argv)
+    app.setStyleSheet(theme.STYLESHEET)
+    app.setWindowIcon(QIcon(ICON_PATH))
+
+    remove_data = False
+    if not quiet:
+        check = QCheckBox("Apagar tambem meu login, historico e configuracoes")
+        box = QMessageBox()
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(paths.APP_NAME)
+        box.setText("Desinstalar o {} deste computador?".format(paths.APP_NAME))
+        box.setInformativeText("O app sai da lista de programas e para de abrir com o Windows.")
+        box.setCheckBox(check)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        remove_data = check.isChecked()
+
+    installer.kill_other_instances()
+    installer.uninstall(remove_data=remove_data)
+    if not quiet:
+        QMessageBox.information(None, paths.APP_NAME,
+                                "{} desinstalado.".format(paths.APP_NAME))
+
+
+def _offer_install():
+    """Primeira vez que o .exe roda solto (baixado da Release, por
+    exemplo): oferece virar programa instalado. Se aceitar, reabre ja da
+    pasta de instalacao e este processo sai. Se recusar, nao pergunta de
+    novo -- continua funcionando solto, como antes."""
+    if config.load_config().get("INSTALL_DECLINED"):
+        return
+    box = QMessageBox()
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle(paths.APP_NAME)
+    box.setText("Instalar o {} neste computador?".format(paths.APP_NAME))
+    box.setInformativeText(
+        "Ele passa a aparecer na lista de programas do Windows (da pra desinstalar por la "
+        "ou pelas Configuracoes do proprio app) e ganha atalho no Menu Iniciar.\n\n"
+        "Seu login, historico e configuracoes continuam os mesmos."
+    )
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    if box.exec() != QMessageBox.StandardButton.Yes:
+        config.save_config({"INSTALL_DECLINED": "1"})
+        return
+    try:
+        exe = installer.install()
+        updater.launch(exe)
+    except Exception as e:
+        log("Instalacao falhou: {}".format(e))
+        QMessageBox.critical(None, paths.APP_NAME, "Nao deu pra instalar: {}".format(e))
+        return
+    sys.exit(0)
+
+
 def main():
+    if installer.UNINSTALL_FLAG in sys.argv:
+        _run_uninstall(sys.argv)
+        return
+
+    if installer.INSTALL_FLAG in sys.argv:
+        _run_install(sys.argv)
+        return
+
     previous_version = updater.previous_version_from_args(sys.argv)
     after_update = previous_version is not None
     if not _acquire_single_instance_lock(wait_s=30 if after_update else 0):
@@ -439,6 +598,10 @@ def main():
     if not QSystemTrayIcon.isSystemTrayAvailable():
         QMessageBox.critical(None, paths.APP_NAME, "Bandeja do sistema não disponível.")
         sys.exit(1)
+
+    if installer.can_install():
+        _offer_install()
+    installer.refresh_registry()
 
     try:
         voice_app = VoiceApp()

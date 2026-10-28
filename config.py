@@ -12,6 +12,7 @@ DEFAULTS = {
     "AUDIO_DEVICE": "",
     "BROWSER_CHANNEL": "",
     "TOUR_DONE": "",
+    "INSTALL_DECLINED": "",
     "WIDGET_X": "",
     "WIDGET_Y": "",
 }

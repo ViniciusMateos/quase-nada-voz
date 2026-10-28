@@ -147,6 +147,17 @@ def _clean_launch_env():
     return env
 
 
+def launch(exe_path, args=()):
+    """Abre outro .exe empacotado a partir deste, com o ambiente limpo
+    (ver _clean_launch_env) e solto deste processo."""
+    return subprocess.Popen(
+        [str(exe_path), *args],
+        creationflags=_DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP,
+        close_fds=True,
+        env=_clean_launch_env(),
+    )
+
+
 def apply_update_and_restart(new_exe_path):
     """Poe o .exe novo no lugar do atual e abre ele. So faz sentido
     rodando empacotado.
@@ -171,12 +182,7 @@ def apply_update_and_restart(new_exe_path):
         raise
 
     try:
-        subprocess.Popen(
-            [str(current), f"{AFTER_UPDATE_FLAG}={APP_VERSION}"],
-            creationflags=_DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
-            env=_clean_launch_env(),
-        )
+        launch(current, [f"{AFTER_UPDATE_FLAG}={APP_VERSION}"])
     except Exception:
         try:
             current.replace(new)

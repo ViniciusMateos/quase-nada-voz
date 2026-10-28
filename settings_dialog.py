@@ -28,6 +28,7 @@ import auth
 import autostart
 import config
 import history
+import installer
 import paths
 import session as session_mod
 import theme
@@ -594,7 +595,7 @@ class SettingsDialog(QDialog):
     sai do campo (ou fecha o painel), pra nao gravar a cada letra."""
 
     def __init__(self, on_hotkey_changed=None, on_device_changed=None, on_hotkey_capture=None,
-                 anchor_rect=None, session=None, parent=None):
+                 anchor_rect=None, session=None, parent=None, on_uninstall=None, on_install=None):
         super().__init__(parent)
         self._anchor_rect = anchor_rect
         self._session = session
@@ -615,6 +616,8 @@ class SettingsDialog(QDialog):
         self._on_hotkey_changed = on_hotkey_changed
         self._on_device_changed = on_device_changed
         self._on_hotkey_capture = on_hotkey_capture
+        self._on_uninstall = on_uninstall
+        self._on_install = on_install
         self._login_thread = None
 
         self._fade_anim = QPropertyAnimation(self, b"windowOpacity", self)
@@ -647,6 +650,9 @@ class SettingsDialog(QDialog):
         general_form.addRow("Hotkey:", self.hotkey_button)
         general_form.addRow("Microfone:", self.device_combo)
         general_form.addRow(self.autostart_check)
+        install_row = self._build_install_row()
+        if install_row is not None:
+            general_form.addRow(install_row)
         general_tab = QWidget()
         general_tab.setLayout(general_form)
 
@@ -754,6 +760,32 @@ class SettingsDialog(QDialog):
         self.browser_combo.currentIndexChanged.connect(self._on_browser_selected)
         self.email_edit.editingFinished.connect(self._commit_credentials)
         self.password_edit.editingFinished.connect(self._commit_credentials)
+
+    def _build_install_row(self):
+        """Instalar/desinstalar sem sair do app. Rodando do codigo-fonte
+        nao aparece nada: nao existe um .exe pra registrar no Windows."""
+        if installer.is_installed():
+            botao = AnimatedButton("Desinstalar o app")
+            botao.clicked.connect(lambda: self._on_uninstall and self._on_uninstall())
+            dica = "Instalado em {}".format(installer.INSTALL_DIR)
+        elif installer.can_install():
+            botao = AnimatedButton("Instalar neste computador")
+            botao.clicked.connect(lambda: self._on_install and self._on_install())
+            dica = "Pra aparecer na lista de programas do Windows"
+        else:
+            return None
+
+        botao.setCursor(Qt.PointingHandCursor)
+        legenda = QLabel(dica)
+        legenda.setObjectName("guideLabel")
+        legenda.setWordWrap(True)
+        linha = QWidget()
+        layout = QVBoxLayout(linha)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(4)
+        layout.addWidget(botao)
+        layout.addWidget(legenda)
+        return linha
 
     def _build_history_tab(self):
         """Ultimas transcricoes salvas. Serve principalmente pra quando a

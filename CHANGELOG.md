@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.0] — 2026-11-05
+
+### Adicionado
+- feat: **seu ditado não se perde mais quando a conta cai**. Antes, com a sessão fora do ar, o ditado era recusado na hora: você falava, não gravava nada, e tinha que repetir tudo depois de entrar. Agora o áudio fica **guardado** e é transcrito sozinho assim que a conta volta, aparecendo num balãozinho com Copiar e "Ver no histórico". Vale também pra sessão que vence no meio do caminho — você fala um minuto, manda, e não precisa falar de novo. Ficam guardados até 3; passando disso, o mais antigo sai
+- feat: **limite de 10 minutos por gravação**. Um toque rápido trava a gravação ligada e dá pra esquecer assim (ou apertar a tecla sem querer) — agora ela para sozinha em vez de ficar capturando o dia inteiro
+
 ## [1.4.0] — 2026-11-05
 
 ### Corrigido

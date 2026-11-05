@@ -75,6 +75,48 @@ Não dá pra sobrescrever um `.exe` em execução, mas dá pra **renomear**: o a
 
 Pra testar o fluxo inteiro sem publicar nada, o Dev tem "Testar atualização (dev)" na bandeja: ele copia o próprio `.exe` e escreve um `update_feed.json` na pasta de dados fingindo que saiu versão nova.
 
+## Login: como ele sabe que você entrou
+
+O sinal de "logou" é **uma só coisa**: `fetch('/api/auth/session')` dentro da própria página devolver um `accessToken`. Perguntado de meio em meio segundo, desde o primeiro instante (deslogado o endpoint responde `{}`, então dá pra perguntar sempre).
+
+O que **não** serve, e já foi usado aqui:
+
+| Jeito antigo | Problema | Medido |
+|---|---|---|
+| `goto(wait_until="networkidle")` | o chatgpt.com quase nunca fica quieto | 2,6s x 0,5s do `domcontentloaded` |
+| `wait_for_load_state("networkidle")` depois do login | idem, e era puro tempo parado | 6,6s x 0,1s perguntando direto |
+| adivinhar pela URL (saiu de `/auth` = logou) | com perfil salvo o redirect vem **depois** do `domcontentloaded`; procurar o campo de email ali esperava 20s por uma tela que nunca vinha | 23,6s x 3,0s |
+
+Hoje o caminho "já estava logado" leva ~3s do zero até a janela fechar.
+
+### Os seletores do formulário mudam
+
+Em novembro/2026 o campo de email deixou de ser `#email` e virou `input[name=username]` — o preenchimento automático quebrou **silenciosamente**: estourava na primeira linha, caía num `except` que só fazia `print` (num app `--windowed` ninguém vê) e o app ficava 180s esperando o usuário fazer algo que ele não sabia que tinha que fazer.
+
+Por isso cada campo é procurado por uma **lista de candidatos** (`SELETORES_EMAIL`, `SELETORES_SENHA`, `SELETORES_CODIGO`...) e nada disso é fatal: não achou a tela, o aviso na janela orienta e o usuário termina na mão.
+
+### O aviso dentro da janela
+
+`BANNER_SCRIPT` é injetado por `add_init_script` (roda de novo a cada navegação) e desenha uma pílula fixa no topo, sem capturar clique. A cada volta do laço o texto é reescrito a partir do que está na tela (`_mensagem_da_tela`): campo de código → "a OpenAI mandou um código no seu email"; campo de senha → "digite sua senha"; nada reconhecido → "entrando...". O campo da vez também recebe foco, uma vez por tela (refocar a cada meio segundo roubaria o cursor no meio da digitação).
+
+Essa parte não é enfeite: **essa conta pede código por email depois da senha**, então o login nunca termina 100% sozinho — alguém tem que digitar o código, e precisa saber disso.
+
+### Fechar a janela na mão
+
+Vale como "terminei": `JanelaFechada` é levantada e a sessão é relida do perfil salvo. Esse retry **tem que ser com janela** — sem janela o Cloudflare responde **403 "Um momento…"** e a sessão nunca aparece (medido).
+
+## Sessão morta que se passava por viva
+
+`/api/auth/session` responde `200` mesmo com a sessão já incapaz de renovar o token. Nesse estado ele manda:
+
+- `expires` — validade do **cookie da sessão**, meses à frente (numa conta real: `2027-02-03`);
+- `accessToken` — o último token emitido, **já vencido** (`exp` de `2026-09-15`, 51 dias antes);
+- `error: "RefreshAccessTokenError"`.
+
+O app olhava só "veio um accessToken?" e concluía *sessão ativa*. Resultado: bolinha normal por semanas, e o problema só aparecia na hora de ditar (401), com o navegador abrindo de surpresa no meio do trabalho.
+
+Agora `_sessao_morreu()` reprova a resposta se tiver `error` ou se o `exp` **de dentro do JWT** já passou (`_token_expirado`, com 60s de margem) — e o mesmo vale pro token em cache, senão um token morto ficaria guardado até o `expires` do cookie, meses depois. Token que não dá pra decodificar conta como válido: na dúvida tenta, quem derruba é o 401.
+
 ## Trava de sessão
 
 `session.py` confere a conta ao subir e a cada 10 minutos, e `auth.check_session()` responde `ok` / `expired` / `no_credentials` / `offline` **sem nunca abrir navegador**. Enquanto não estiver `ok`, a bolinha fica vermelha e o ditado é recusado antes de gravar (`_start_recording` devolve `False`, e o `hotkey.py` respeita isso em vez de achar que começou a gravar).

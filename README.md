@@ -19,6 +19,8 @@ No painel de Configurações (clique na bolinha ou no ícone da bandeja) dá pra
 
 **Sem campo de texto em foco:** se na hora de colar o app percebe que não tem onde colar (área de trabalho, lista de arquivos, janela de acesso remoto), ele não cola e mostra um balãozinho do lado da bolinha com o texto e dois botões: **Copiar** e **Ver no histórico**. Na dúvida, ele cola normalmente.
 
+**Quando precisar entrar na conta de novo:** a janela do navegador abre com um aviso no topo dizendo o que falta fazer naquele momento — "digite sua senha", "a OpenAI mandou um código no seu email, digite ele aqui" — e o campo já vem com o cursor dentro. Assim que o login é detectado (menos de um segundo depois), a janela fecha sozinha. Você não precisa clicar em nada pra avisar que terminou.
+
 **Bolinha vermelha:** quer dizer que a conta não está funcionando (login não feito, sessão vencida, sem internet). Nesse estado o app nem tenta ditar — passe o mouse pra ver o motivo e clique pra resolver nas Configurações, aba Conta (o botão "Verificar agora" reconfere na hora).
 
 Na primeira vez que você abre o painel ele te leva por um passo a passo rápido explicando cada parte. Dá pra rever quando quiser na aba **Tutorial**.

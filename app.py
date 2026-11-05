@@ -12,6 +12,7 @@ import config
 import focus
 import installer
 import paths
+import pending
 import session as session_mod
 import sound
 import theme
@@ -67,6 +68,8 @@ class _AppBridge(QObject):
     aviso com seguranca na thread do Qt."""
     history_saved = Signal()
     quit_requested = Signal()
+    dictation_saved = Signal(int)   # ditado guardado pra depois (quantos tem)
+    pending_changed = Signal()
     not_pasted = Signal(str, str)  # texto, titulo do aviso
     auth_failed = Signal()
 
@@ -93,6 +96,8 @@ class VoiceApp:
         self._bridge.not_pasted.connect(self._notice.show_text)
         self._bridge.auth_failed.connect(self._on_auth_failed)
         self._bridge.quit_requested.connect(self._quit)
+        self._bridge.dictation_saved.connect(self._on_dictation_saved)
+        self._bridge.pending_changed.connect(self._refresh_tooltip)
         self._watch_quit_request()
         self.recorder = Recorder(
             on_bands=self._on_bands, device_name=self.cfg["AUDIO_DEVICE"]
@@ -107,6 +112,7 @@ class VoiceApp:
         self._recording_limit = QTimer()
         self._recording_limit.setSingleShot(True)
         self._recording_limit.timeout.connect(self._on_recording_limit)
+        self._processing_pending = False
 
         self.tray = QSystemTrayIcon(QIcon(ICON_PATH))
         self._refresh_tooltip()
@@ -158,6 +164,9 @@ class VoiceApp:
             text = f"{paths.APP_NAME} - {session_mod.MESSAGES[self.session.status]}"
         else:
             text = f"{paths.APP_NAME} - segure ou toque {vk_to_name(self.hotkey.vk_code)} para ditar"
+        guardados = pending.count()
+        if guardados:
+            text += f" ({guardados} ditado{'s' if guardados > 1 else ''} guardado{'s' if guardados > 1 else ''})"
         self.tray.setToolTip(text)
 
     _ALERT_MESSAGES = {
@@ -168,18 +177,19 @@ class VoiceApp:
     def _on_session_status(self, status):
         self.widget.set_alert(self.session.blocked, self._ALERT_MESSAGES.get(status))
         self._refresh_tooltip()
+        if status == session_mod.OK:
+            self._process_pending()
 
     def _start_recording(self):
-        # sem conta funcionando nao adianta gravar: a transcricao ia falhar
-        # (ou abrir navegador do nada). Avisa na propria bolinha e recusa
-        # -- o False faz o hotkey nao entrar em modo "gravando".
+        # Sem conta conectada o ditado era recusado na hora, e o que a
+        # pessoa tinha acabado de falar se perdia -- tinha que falar tudo
+        # de novo depois de entrar. Agora grava do mesmo jeito: no fim o
+        # audio fica guardado e e transcrito sozinho quando a conta
+        # voltar (ver pending.py). A bolinha ja esta vermelha avisando
+        # que a conta nao esta conectada.
         if self.session.blocked:
-            self.widget.show_message(self._ALERT_MESSAGES.get(
-                self.session.status, "Sem login — clique para adicionar conta"))
-            _beep(500, 150)
-            log(f"ditado bloqueado: sessao {self.session.status}")
+            log(f"gravando com a sessao {self.session.status} - o ditado vai ficar guardado")
             self.session.check()  # talvez ja tenha sido resolvido
-            return False
 
         log("gravando...")
         self.recorder.start()
@@ -194,12 +204,15 @@ class VoiceApp:
 
     def _stop_recording(self):
         self._recording_limit.stop()
-        log("parou de gravar, transcrevendo...")
         wav_bytes = self.recorder.stop()
-        self.widget.stop_recording(start_processing=bool(wav_bytes))
+        guardar = bool(wav_bytes) and self.session.blocked
+        log("parou de gravar, " + ("guardando pra depois..." if guardar else "transcrevendo..."))
+        self.widget.stop_recording(start_processing=bool(wav_bytes) and not guardar)
         self._refresh_tooltip()
         sound.play(sound.START_STOP_RECORDING)
-        if wav_bytes:
+        if guardar:
+            self._on_dictation_saved(pending.add(wav_bytes))
+        elif wav_bytes:
             threading.Thread(target=self._transcribe, args=(wav_bytes,), daemon=True).start()
 
     def _on_recording_limit(self):
@@ -218,6 +231,56 @@ class VoiceApp:
         self.widget.show_message(
             f"{MAX_RECORDING_MS // 60000} minutos gravando — parei por aqui", tone="info")
 
+    def _on_dictation_saved(self, total):
+        """Audio guardado pra quando a conta voltar."""
+        if not total:
+            _beep(500, 100)
+            _beep(500, 100)
+            log("Nao deu pra guardar o ditado -- audio perdido")
+            return
+        _beep(500, 150)
+        log(f"Ditado guardado pra transcrever depois ({total} guardado(s))")
+        self.widget.show_message(
+            "Sem conta conectada — guardei seu ditado"
+            + (f" ({total} guardados)" if total > 1 else "")
+        )
+        self._refresh_tooltip()
+
+    def _process_pending(self):
+        """Conta voltou: transcreve o que ficou guardado, do mais antigo
+        pro mais novo. Roda uma vez so -- a sessao e rechecada a cada 10
+        minutos e avisaria "ok" de novo no meio do caminho."""
+        if self._processing_pending or not pending.count():
+            return
+        self._processing_pending = True
+        threading.Thread(target=self._run_pending, daemon=True).start()
+
+    def _run_pending(self):
+        try:
+            for caminho in pending.load():
+                try:
+                    wav_bytes = caminho.read_bytes()
+                except OSError:
+                    pending.remove(caminho)
+                    continue
+                status, text = transcriber.transcribe_and_paste(
+                    wav_bytes, self.cfg["OAI_DEVICE_ID"], paste=False,
+                    on_saved=lambda _text: self._bridge.history_saved.emit(),
+                )
+                if status == "auth_error":
+                    # caiu de novo: fica guardado pra proxima
+                    log("Conta caiu durante os ditados guardados - eles continuam guardados")
+                    break
+                pending.remove(caminho)
+                if text:
+                    sound.play(sound.DONE_TRANSCRIBE)
+                    self._bridge.not_pasted.emit(text, "Ditado guardado, transcrito agora")
+                else:
+                    log(f"Ditado guardado nao rendeu texto ({status}) - descartado")
+        finally:
+            self._processing_pending = False
+            self._bridge.pending_changed.emit()
+
     def _transcribe(self, wav_bytes):
         try:
             status, text = transcriber.transcribe_and_paste(
@@ -233,6 +296,9 @@ class VoiceApp:
                 _beep(500, 100)
 
             if status == "auth_error":
+                # a conta caiu no meio: o que ele acabou de falar nao
+                # pode se perder so porque a sessao venceu agora
+                self._bridge.dictation_saved.emit(pending.add(wav_bytes))
                 self._bridge.auth_failed.emit()
             elif status == "no_target":
                 self._bridge.not_pasted.emit(text, "Nenhum campo de texto em foco")

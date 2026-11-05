@@ -43,7 +43,7 @@ def paste_text(text):
     win32clipboard.CloseClipboard()
 
 
-def transcribe_and_paste(wav_bytes, oai_device_id, on_saved=None):
+def transcribe_and_paste(wav_bytes, oai_device_id, on_saved=None, paste=True):
     """Manda o audio pra API e cola o texto no cursor. Retorna uma tupla
     (status, texto), com status:
     - "ok": transcreveu e colou
@@ -56,6 +56,12 @@ def transcribe_and_paste(wav_bytes, oai_device_id, on_saved=None):
 
     on_saved(texto) e chamado assim que a transcricao entra no historico,
     antes de colar -- pra quem mostra o historico atualizar na hora.
+
+    paste=False transcreve e nao cola: usado nos ditados que ficaram
+    guardados esperando a conta voltar. Colar um texto falado minutos
+    atras cairia em qualquer lugar onde o cursor estiver agora, entao
+    ele volta como "no_target" e quem chamou mostra o avisinho com
+    Copiar / Ver no historico.
 
     So reloga (abre o navegador) na 2a tentativa de 401/403 -- a 1a
     tenta renovar so pelo cookie salvo, sem navegador nenhum."""
@@ -104,6 +110,9 @@ def transcribe_and_paste(wav_bytes, oai_device_id, on_saved=None):
         history.add(text)
         if on_saved:
             on_saved(text)
+
+        if not paste:
+            return "no_target", text
 
         # checado agora (nao quando comecou a gravar): o que importa e
         # onde o foco esta na hora de colar

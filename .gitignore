@@ -8,6 +8,7 @@ session_meta.json
 .browser_profile/
 quase_nada_voz.log
 history.json
+ditados_guardados/
 login_debug.png
 build/
 dist/

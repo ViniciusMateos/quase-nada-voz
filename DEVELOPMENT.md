@@ -133,6 +133,30 @@ O e-mail associado à sessão fica em `session_meta.json` (fora do git). Trocar 
 
 > Pico 32767 no log (áudio batendo no teto) **não** é sinal de problema por si só: esse headset satura assim há semanas e transcreve normal. Pra separar "a API mudou" de "o áudio chegou estragado", mande uma fala sintética (TTS do Windows) direto pro endpoint.
 
+## Ditados guardados (sem conta conectada)
+
+`pending.py`. Antes, com a sessão bloqueada, o ditado era **recusado no `_start_recording`** — a pessoa falava, não era gravada nada, e tinha que repetir tudo depois de entrar na conta. Agora grava sempre; quem decide o destino é o `_stop_recording`:
+
+- sessão ok → fluxo normal (transcreve e cola);
+- sessão bloqueada → o WAV vai pra `ditados_guardados/` na pasta de dados.
+
+Também cai ali o áudio de uma transcrição que volta `auth_error` — a sessão vencendo no meio é justamente o caso em que o áudio sumia.
+
+Quando o `SessionMonitor` passa pra `ok`, `_process_pending()` transcreve os guardados do mais antigo pro mais novo, com `transcribe_and_paste(..., paste=False)`. **Não cola**: o texto é de um minuto atrás e o cursor já está em outro lugar. Ele entra no histórico e aparece no balãozinho (`not_pasted`), que já tem Copiar e "Ver no histórico" — o mesmo componente do caso "nenhum campo de texto em foco".
+
+Detalhes que importam:
+
+- **Máximo 3** (`MAX_ITEMS`), descartando os mais antigos: é rede de segurança do que acabou de ser dito, não arquivo morto.
+- `_process_pending` tem trava (`_processing_pending`): a sessão é rechecada a cada 10 minutos e emitiria `ok` de novo no meio do processamento.
+- Se a conta cair de novo no meio da fila, o laço **para** e o que sobrou continua guardado.
+- Gravar com a sessão bloqueada dispara um `session.check()`: se a conta voltar durante a fala, o `_stop_recording` já transcreve direto em vez de guardar (testado — acontece de verdade).
+
+## Limite de gravação
+
+`MAX_RECORDING_MS` (10 min) em `app.py`. Um toque rápido trava a gravação ligada, então dá pra esquecer ligada ou apertar sem querer e capturar por horas.
+
+O timer chama `hotkey.stop_if_recording()`, **não** o `_stop_recording` direto: o listener precisa sair do modo travado junto, senão o próximo toque na tecla seria lido como "parar" e não começaria nada.
+
 ## Histórico de transcrições
 
 `history.py` guarda as últimas `MAX_ITEMS` (5) transcrições em `history.json` (no mesmo diretório de dados do `.env`/log). A gravação acontece em `transcriber.py` **antes** da colagem, de propósito: se a colagem cair na janela errada ou falhar, o texto ainda dá pra recuperar pela aba Histórico do painel. Cada entrada nova empurra a mais antiga pra fora, então o arquivo não cresce. Erro de leitura/escrita nunca propaga — histórico quebrado vira lista vazia, pra não atrapalhar a transcrição em si.

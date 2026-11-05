@@ -15,6 +15,12 @@ Ditado por voz: aperte uma tecla, fale, solte — o texto é transcrito e colado
 
 No painel de Configurações (clique na bolinha ou no ícone da bandeja) dá pra trocar a tecla, o microfone, o navegador usado no login, e ligar o app junto com o Windows — tudo sem editar arquivo nenhum.
 
+**Sem conta conectada, seu ditado não se perde:** se a sessão caiu (bolinha vermelha) e você falou mesmo assim, o áudio fica **guardado** em vez de ir pro lixo — e é transcrito sozinho assim que você entra na conta, aparecendo num balãozinho com Copiar e "Ver no histórico". Ficam guardados até 3 ditados; passando disso, o mais antigo sai. Isso vale também pra quando a sessão vence no meio do caminho: você fala um minuto, manda, a conta tinha expirado — e não precisa falar tudo de novo.
+
+O texto que volta desses ditados guardados **não é colado automaticamente**: você já está fazendo outra coisa a essa altura, e ele cairia em qualquer lugar onde o cursor estiver.
+
+**Limite de 10 minutos:** um toque rápido trava a gravação ligada, e dá pra esquecer assim (ou apertar a tecla sem querer). Passando de 10 minutos a gravação para sozinha, em vez de ficar capturando o dia inteiro.
+
 **Aba Histórico:** guarda as últimas 5 transcrições. Serve pra quando a colagem automática não cai onde devia (acesso remoto, janela que perdeu o foco) — clique numa transcrição pra ver o texto completo, ou use o botão "Copiar" e cole você mesmo. Só as 5 últimas ficam salvas; as mais antigas somem sozinhas.
 
 **Sem campo de texto em foco:** se na hora de colar o app percebe que não tem onde colar (área de trabalho, lista de arquivos, janela de acesso remoto), ele não cola e mostra um balãozinho do lado da bolinha com o texto e dois botões: **Copiar** e **Ver no histórico**. Na dúvida, ele cola normalmente.

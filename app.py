@@ -28,6 +28,11 @@ from settings_dialog import SettingsDialog, UpdateDialog
 
 ICON_PATH = str(paths.ICON_PATH)
 # depois de atualizar: espera a bolinha aparecer/assentar antes do aviso
+# um toque rapido na tecla trava a gravacao ligada: esquecida assim
+# (ou apertada sem querer), ela gravaria pra sempre. Ninguem dita mais
+# que isso de uma vez.
+MAX_RECORDING_MS = 10 * 60 * 1000
+
 AFTER_UPDATE_NOTICE_DELAY_MS = 1800
 AFTER_UPDATE_NOTICE_MS = 6000
 
@@ -96,6 +101,12 @@ class VoiceApp:
 
         self.hotkey = HotkeyListener(parse_hotkey(self.cfg["HOTKEY"]), self._start_recording, self._stop_recording)
         self.hotkey.install()
+
+        # sem parent: VoiceApp nao e QObject. A referencia aqui no self
+        # ja basta pra ele nao ser coletado.
+        self._recording_limit = QTimer()
+        self._recording_limit.setSingleShot(True)
+        self._recording_limit.timeout.connect(self._on_recording_limit)
 
         self.tray = QSystemTrayIcon(QIcon(ICON_PATH))
         self._refresh_tooltip()
@@ -179,8 +190,10 @@ class VoiceApp:
         self.widget.start_recording()
         self.tray.setToolTip(f"{paths.APP_NAME} - gravando...")
         sound.play(sound.START_STOP_RECORDING)
+        self._recording_limit.start(MAX_RECORDING_MS)
 
     def _stop_recording(self):
+        self._recording_limit.stop()
         log("parou de gravar, transcrevendo...")
         wav_bytes = self.recorder.stop()
         self.widget.stop_recording(start_processing=bool(wav_bytes))
@@ -188,6 +201,22 @@ class VoiceApp:
         sound.play(sound.START_STOP_RECORDING)
         if wav_bytes:
             threading.Thread(target=self._transcribe, args=(wav_bytes,), daemon=True).start()
+
+    def _on_recording_limit(self):
+        """Gravacao travada ligada por engano: para sozinha no limite.
+
+        Passa pelo hotkey (e nao direto no _stop_recording) pra ele sair
+        do modo travado tambem -- senao o proximo toque na tecla seria
+        lido como "parar" e nao comecaria nada."""
+        if not self.recorder.recording:
+            return
+        log(f"limite de {MAX_RECORDING_MS // 60000} minutos de gravacao - parando sozinho")
+        self.hotkey.stop_if_recording()
+        _beep(500, 120)
+        # so aparece se nao engatou a transcricao (a pilula nao sobrepoe
+        # o "carregando"); o log e o beep cobrem os outros casos
+        self.widget.show_message(
+            f"{MAX_RECORDING_MS // 60000} minutos gravando — parei por aqui", tone="info")
 
     def _transcribe(self, wav_bytes):
         try:

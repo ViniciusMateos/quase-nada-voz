@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0] — 2026-11-05
+
+### Corrigido
+- fix: **entrar na conta voltou a funcionar**. A OpenAI renomeou o campo de email da tela de login, e o preenchimento automático quebrou sem dar um pio — a janela abria e ficava até 3 minutos esperando você fazer algo que ninguém tinha avisado que era pra fazer. Agora cada campo é procurado por vários nomes possíveis, pra aguentar a próxima mudança deles
+- fix: **o app achava que a sessão estava ativa quando já tinha morrido**. O ChatGPT continua respondendo "ok" e devolvendo o último token mesmo depois dele vencer; numa conta real o token estava vencido havia 51 dias e a bolinha seguia normal. O erro só aparecia na hora de ditar, com o navegador abrindo de surpresa no meio do trabalho. Agora o app confere a validade de verdade e avisa antes, na bolinha
+- fix: o login ficou **muito mais rápido**. Ele esperava a página do ChatGPT "ficar quieta" pra só então perceber que você tinha entrado; agora pergunta direto. Quando a sessão do navegador ainda vale, o login inteiro leva ~3s (era ~24s)
+
+### Adicionado
+- feat: a janela do login agora **diz o que falta fazer**, num aviso no topo que muda conforme a tela: "digite a senha da sua conta aqui", "a OpenAI mandou um código de verificação pro seu email, digite ele aqui". O campo já vem com o cursor dentro, e a janela **fecha sozinha** assim que o login é detectado — você não precisa clicar em nada pra avisar que terminou. Fechar a janela você mesmo também vale
+
 ## [1.3.0] — 2026-10-28
 
 ### Adicionado
